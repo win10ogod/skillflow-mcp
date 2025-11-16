@@ -71,6 +71,53 @@ All notable changes to Skillflow-MCP will be documented in this file.
     })
     ```
 
+- **实现 Skillflow 自身的 MCP Resources 和 Prompts** ⭐📚
+  - 🎯 **功能**：Skillflow 现在不仅能访问上游服务器的 Resources/Prompts，自身也作为完整的 MCP 服务器提供这些功能
+  - ✅ **完整 MCP 协议支持**：
+    - ✅ **Tools** - 工具调用（已有功能）
+    - ✅ **Resources** - 资源访问（新增）
+    - ✅ **Prompts** - 提示词模板（新增）
+  - 📦 **Skillflow Resources**（通过自定义 URI 方案暴露）：
+    - `skill://<skill_id>` - 访问技能定义（完整的 SkillDraft JSON）
+    - `session://<session_id>` - 访问录制会话数据
+    - `run://<run_id>` - 访问技能执行日志
+  - 📦 **Skillflow Prompts**（预定义的开发指南）：
+    - `create_skill` - 从录制会话创建技能的分步指南
+      - 参数：session_id, concurrency（可选，默认 sequential）
+      - 包含：会话审查、参数分析、并发模式选择、创建和测试
+    - `debug_skill` - 调试技能执行问题的诊断指南
+      - 参数：skill_id, run_id（可选）
+      - 包含：执行日志分析、节点失败诊断、参数问题检测
+    - `optimize_skill` - 优化技能性能的最佳实践
+      - 参数：skill_id, focus（可选：performance/reliability/maintainability）
+      - 包含：并发优化、错误处理、参数验证、文档改进
+    - `skill_best_practices` - 技能开发和维护的最佳实践总结
+      - 无参数
+      - 包含：设计原则、测试策略、版本控制、文档规范
+  - 🌟 **使用场景**：
+    - AI 助手可以通过 Resources 直接访问技能定义和执行历史
+    - AI 助手可以通过 Prompts 获取结构化的操作指南
+    - 实现完整的 MCP 生态集成（Skillflow 既是客户端也是服务器）
+  - 💡 **示例**：
+    ```python
+    # 通过 MCP Resources API 访问技能定义
+    # 客户端调用：read_resource(uri="skill://my-skill-id")
+    # 返回：完整的 SkillDraft JSON，包含图结构、参数模板、并发配置等
+
+    # 通过 MCP Prompts API 获取创建技能的指南
+    # 客户端调用：get_prompt(name="create_skill", arguments={"session_id": "xxx", "concurrency": "phased"})
+    # 返回：结构化的分步指南，包含具体的工具调用示例和参数说明
+
+    # 通过 MCP Resources API 访问执行日志
+    # 客户端调用：read_resource(uri="run://run-2025-11-16-001")
+    # 返回：详细的执行日志数组，包含每个节点的参数、结果、耗时等
+    ```
+  - 🔧 **技术实现**：
+    - 在 server.py 中新增 `_setup_resources()` 和 `_setup_prompts()` 方法
+    - 使用 `@self.server.list_resources()` 和 `@self.server.read_resource()` 装饰器
+    - 使用 `@self.server.list_prompts()` 和 `@self.server.get_prompt()` 装饰器
+    - 在服务器初始化时自动注册这些端点
+
 ### Fixed - 2025-11-16 (Compatibility Fix) 🔧
 
 - **修复 Fount 客户端的 60 字符限制问题**

@@ -57,6 +57,8 @@ class SkillFlowServer:
         # Register tools
         self._register_tools()
         self._setup_list_tools()
+        self._setup_resources()
+        self._setup_prompts()
 
     async def initialize(self):
         """Initialize server and load data."""
@@ -1272,6 +1274,297 @@ class SkillFlowServer:
             upstream_tools = await self._get_upstream_tools()
 
             return base_tools + skill_tools + upstream_tools
+
+    def _setup_resources(self):
+        """Setup MCP resources endpoints."""
+
+        @self.server.list_resources()
+        async def list_resources() -> list[dict]:
+            """List available resources from Skillflow server.
+
+            Resources include:
+            - skill://<skill_id> - Skill definitions
+            - session://<session_id> - Recording sessions
+            - run://<run_id> - Execution logs
+            """
+            resources = []
+
+            # List all skills as resources
+            skills = await self.skill_manager.list_skills()
+            for skill_meta in skills:
+                resources.append({
+                    "uri": f"skill://{skill_meta.id}",
+                    "name": skill_meta.name,
+                    "description": f"Skill: {skill_meta.description}",
+                    "mimeType": "application/json",
+                })
+
+            # List recording sessions as resources
+            try:
+                sessions = await self.storage.list_sessions()
+                for session in sessions:
+                    session_name = session.get("metadata", {}).get("name", session["id"])
+                    resources.append({
+                        "uri": f"session://{session['id']}",
+                        "name": f"Session: {session_name}",
+                        "description": f"Recording session with {len(session.get('logs', []))} tool calls",
+                        "mimeType": "application/json",
+                    })
+            except:
+                pass  # Ignore if sessions not available
+
+            return resources
+
+        @self.server.read_resource()
+        async def read_resource(uri: str) -> str:
+            """Read a resource by URI.
+
+            Supported URI schemes:
+            - skill://<skill_id> - Returns skill definition as JSON
+            - session://<session_id> - Returns recording session as JSON
+            - run://<run_id> - Returns execution log as JSON
+            """
+            import json
+
+            if uri.startswith("skill://"):
+                skill_id = uri[8:]  # Remove "skill://" prefix
+                skill = await self.skill_manager.get_skill(skill_id)
+                return json.dumps(skill.model_dump(mode="json"), indent=2, ensure_ascii=False)
+
+            elif uri.startswith("session://"):
+                session_id = uri[10:]  # Remove "session://" prefix
+                session = await self.storage.load_session(session_id)
+                return json.dumps(session.model_dump(mode="json"), indent=2, ensure_ascii=False)
+
+            elif uri.startswith("run://"):
+                run_id = uri[6:]  # Remove "run://" prefix
+                executions = await self.storage.load_run_log(run_id)
+                return json.dumps(
+                    [exec.model_dump(mode="json") for exec in executions],
+                    indent=2,
+                    ensure_ascii=False
+                )
+
+            else:
+                raise ValueError(f"Unsupported URI scheme: {uri}")
+
+    def _setup_prompts(self):
+        """Setup MCP prompts endpoints."""
+
+        @self.server.list_prompts()
+        async def list_prompts() -> list[dict]:
+            """List available prompts from Skillflow server.
+
+            Prompts include:
+            - create_skill: Guide for creating skills from recordings
+            - debug_skill: Guide for debugging skill issues
+            - optimize_skill: Guide for optimizing skill performance
+            """
+            return [
+                {
+                    "name": "create_skill",
+                    "description": "Step-by-step guide for creating a skill from a recording session",
+                    "arguments": [
+                        {
+                            "name": "session_id",
+                            "description": "ID of the recording session",
+                            "required": True,
+                        },
+                        {
+                            "name": "concurrency",
+                            "description": "Desired concurrency mode (sequential, phased, full_parallel)",
+                            "required": False,
+                        },
+                    ],
+                },
+                {
+                    "name": "debug_skill",
+                    "description": "Guide for debugging skill execution issues",
+                    "arguments": [
+                        {
+                            "name": "skill_id",
+                            "description": "ID of the skill to debug",
+                            "required": True,
+                        },
+                        {
+                            "name": "issue_type",
+                            "description": "Type of issue (execution_error, parameter_corruption, performance)",
+                            "required": False,
+                        },
+                    ],
+                },
+                {
+                    "name": "optimize_skill",
+                    "description": "Guide for optimizing skill performance",
+                    "arguments": [
+                        {
+                            "name": "skill_id",
+                            "description": "ID of the skill to optimize",
+                            "required": True,
+                        },
+                    ],
+                },
+                {
+                    "name": "skill_best_practices",
+                    "description": "Best practices for skill development and maintenance",
+                    "arguments": [],
+                },
+            ]
+
+        @self.server.get_prompt()
+        async def get_prompt(name: str, arguments: dict | None = None) -> dict:
+            """Get a prompt by name with optional arguments."""
+            arguments = arguments or {}
+
+            if name == "create_skill":
+                session_id = arguments.get("session_id", "<session_id>")
+                concurrency = arguments.get("concurrency", "sequential")
+
+                return {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": f"""I want to create a skill from recording session: {session_id}
+
+Please help me:
+1. Review the session using: debug_recording_session({{\"session_id\": \"{session_id}\"}})
+2. Analyze the tool calls and identify:
+   - What steps can be parameterized (exposed as skill inputs)
+   - What execution mode to use: {concurrency}
+   - Whether any steps can run in parallel
+3. Create the skill using: create_skill_from_session({{
+     \"session_id\": \"{session_id}\",
+     \"skill_id\": \"<choose_a_descriptive_id>\",
+     \"name\": \"<skill_name>\",
+     \"description\": \"<what_does_this_skill_do>\",
+     \"concurrency_mode\": \"{concurrency}\",
+     \"expose_params\": [/* parameters to expose */]
+   }})
+4. Test the skill immediately after creation
+
+Tips:
+- Use sequential mode for dependent steps (data pipeline)
+- Use full_parallel for independent tasks (batch operations)
+- Use phased for grouped operations (fetch all → process all)
+""",
+                            },
+                        }
+                    ]
+                }
+
+            elif name == "debug_skill":
+                skill_id = arguments.get("skill_id", "<skill_id>")
+                issue_type = arguments.get("issue_type", "unknown")
+
+                return {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": f"""Help me debug skill: {skill_id}
+Issue type: {issue_type}
+
+Debugging steps:
+1. Check skill definition: debug_skill_definition({{\"skill_id\": \"{skill_id}\"}})
+2. Review source session: Check the source_session_id in metadata
+3. Execute the skill with test inputs and note the run_id
+4. Analyze execution: debug_skill_execution({{\"run_id\": \"<run_id>\"}})
+5. Compare:
+   - Original recording (source session)
+   - Skill definition (args_template)
+   - Execution results (args_resolved)
+
+Common issues:
+- Parameter corruption: Check if text arguments match between definition and execution
+- Execution errors: Check node statuses and error messages
+- Performance: Consider using parallel execution modes
+""",
+                            },
+                        }
+                    ]
+                }
+
+            elif name == "optimize_skill":
+                skill_id = arguments.get("skill_id", "<skill_id>")
+
+                return {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": f"""Optimize skill: {skill_id}
+
+Optimization checklist:
+1. Review skill definition: debug_skill_definition({{\"skill_id\": \"{skill_id}\"}})
+2. Analyze execution pattern:
+   - Are there independent steps that can run in parallel?
+   - Are there bottlenecks (slow tools called sequentially)?
+3. Consider concurrency modes:
+   - Sequential: Safe default, but slowest
+   - Phased: Group similar operations (all API calls, then all processing)
+   - Full parallel: Maximum speed if dependencies allow
+4. Set max_parallel to limit resource usage
+5. Test performance before and after optimization
+
+Example:
+- Before: 10 sequential API calls (10 seconds total)
+- After: 10 parallel API calls (1-2 seconds total)
+""",
+                            },
+                        }
+                    ]
+                }
+
+            elif name == "skill_best_practices":
+                return {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": """Skill Development Best Practices:
+
+1. **Recording**:
+   - Use descriptive session names
+   - Record complete workflows (start to finish)
+   - Avoid unnecessary steps
+
+2. **Parameterization**:
+   - Expose frequently changing values as parameters
+   - Use clear parameter names and descriptions
+   - Provide good default values
+
+3. **Execution Modes**:
+   - Sequential: For workflows with dependencies
+   - Phased: For batch operations with stages
+   - Full Parallel: For independent tasks only
+
+4. **Error Handling**:
+   - Test skills thoroughly before use
+   - Use debug tools to diagnose issues
+   - Keep skills small and focused
+
+5. **Performance**:
+   - Use parallel execution when possible
+   - Set max_parallel to avoid overwhelming systems
+   - Monitor execution times with debug tools
+
+6. **Maintenance**:
+   - Document what each skill does
+   - Use version control (skills support versioning)
+   - Test after updating dependencies
+""",
+                            },
+                        }
+                    ]
+                }
+
+            else:
+                raise ValueError(f"Unknown prompt: {name}")
 
     async def cleanup(self):
         """Clean up resources when server shuts down."""
