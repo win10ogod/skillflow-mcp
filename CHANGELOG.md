@@ -6,30 +6,51 @@ All notable changes to Skillflow-MCP will be documented in this file.
 
 ### Fixed - 2025-11-16 (Compatibility Fix) 🔧
 
-- **优化代理工具命名以适配客户端长度限制**
-  - 🎯 **问题**：Cursor 等客户端限制工具名最多 60 字符
-  - 🎯 **旧格式**：`upstream__windows-driver-input__Input-RateLimiter-Config` (57 字符，接近限制)
-  - ✅ **新格式**：`up_windows-driver-input_Input-RateLimiter-Config` (48 字符，更安全)
+- **修复 Fount 客户端的 60 字符限制问题**
+  - 🎯 **根本原因**：Fount 添加 `mcp_skillflow_` 前缀（13 字符）
+  - 🎯 **旧实现**：代理工具最大 60 字符，加前缀后超限
+    ```
+    mcp_skillflow_up_windows-driver-input_Input-RateLimiter-Config
+    ^^^^^^^^^^^^^                                                    = 13
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^     = 48
+    总计：61 字符 ❌ 超过限制！
+    ```
+  - ✅ **新实现**：代理工具最大 47 字符，为前缀预留空间
+    ```
+    mcp_skillflow_up_1b58650e_Input-RateLimiter-Config
+    ^^^^^^^^^^^^^                                       = 13
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^    = 36
+    总计：49 字符 ✅ 符合限制！
+    ```
   - 📦 **智能策略**：
-    - 短名称：使用 compact 格式 `up_<server_id>_<tool_name>`
-    - 长名称：自动切换到 hash 格式 `up_<hash>_<tool_name>`
+    - 短名称：使用 compact 格式 `up_<server_id>_<tool_name>` (如果 ≤47)
+    - 长名称：自动切换到 hash 格式 `up_<hash>_<tool_name>` (如果 >47)
     - 超长工具名：自动截断并添加 `..` 后缀
   - 🔄 **向后兼容**：仍支持解析旧的 `upstream__` 格式
+
+- **新增调试工具**：
+  - `debug_skill_tools` - 检查技能工具注册状态
+    - 列出所有技能及其对应的工具名
+    - 显示技能工具在 list_tools 中的实际状态
+    - 帮助诊断"技能创建后无法调用"问题
 
 - **新增文件**：
   - `src/skillflow/tool_naming.py` - 智能工具命名策略
   - `test_tool_naming.py` - 命名策略测试脚本
 
-- **命名示例**：
+- **命名示例**（47 字符限制）：
   ```
   windows-driver-input + Move_Tool
-  → up_windows-driver-input_Move_Tool (33 字符) ✅
+  → up_windows-driver-input_Move_Tool (33 字符)
+  → 加前缀：46 字符 ✅
 
   windows-driver-input + Input-RateLimiter-Config
-  → up_windows-driver-input_Input-RateLimiter-Config (48 字符) ✅
+  → up_1b58650e_Input-RateLimiter-Config (36 字符，使用 hash)
+  → 加前缀：49 字符 ✅
 
   very-long-server-name-that-exceeds-limits + Very_Long_Tool_Name
-  → up_395ba45f_Very_Long_Tool_Name (31 字符，使用 hash) ✅
+  → up_395ba45f_Very_Long_Tool_Name (31 字符，使用 hash)
+  → 加前缀：44 字符 ✅
   ```
 
 ### Changed - 2025-11-16 (Major Rewrite) 🚀

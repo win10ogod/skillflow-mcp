@@ -440,6 +440,57 @@ class SkillFlowServer:
                     text=f"Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
                 )]
 
+            if tool_name == "debug_skill_tools":
+                """Debug tool to check skill tool registration status."""
+                import json
+
+                debug_info = {
+                    "skills": [],
+                    "skill_tools": [],
+                    "total_skills": 0,
+                }
+
+                try:
+                    # Get all skills
+                    skills = await self.skill_manager.list_skills()
+                    debug_info["total_skills"] = len(skills)
+
+                    for skill_meta in skills:
+                        try:
+                            skill = await self.skill_manager.get_skill(skill_meta.id)
+                            debug_info["skills"].append({
+                                "id": skill.id,
+                                "name": skill.name,
+                                "version": skill.version,
+                                "description": skill.description,
+                                "tool_name": f"skill__{skill.id}",
+                            })
+                        except Exception as e:
+                            debug_info["skills"].append({
+                                "id": skill_meta.id,
+                                "error": str(e),
+                            })
+
+                    # Get skill tools as they would appear in list_tools
+                    skill_tools_data = await self.skill_manager.list_as_mcp_tools()
+                    debug_info["skill_tools"] = [
+                        {
+                            "name": t["name"],
+                            "description": t.get("description", "")[:60] + "...",
+                        }
+                        for t in skill_tools_data
+                    ]
+
+                except Exception as e:
+                    debug_info["error"] = str(e)
+                    import traceback
+                    debug_info["traceback"] = traceback.format_exc()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Skill Tools Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
+                )]
+
             # Unknown tool name
             return [
                 TextContent(
@@ -722,6 +773,11 @@ class SkillFlowServer:
                 Tool(
                     name="debug_upstream_tools",
                     description="Debug tool to check if upstream tools are being proxied correctly",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="debug_skill_tools",
+                    description="Debug tool to check skill tool registration status",
                     inputSchema={"type": "object", "properties": {}},
                 ),
             ]
