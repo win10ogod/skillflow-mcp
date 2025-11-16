@@ -1,6 +1,7 @@
 """SkillFlow MCP Server implementation."""
 
 import asyncio
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -22,6 +23,7 @@ from .schemas import (
 )
 from .skills import SkillManager
 from .storage import StorageLayer
+from .tool_naming import generate_proxy_tool_name, parse_proxy_tool_name
 
 
 class SkillFlowServer:
@@ -47,6 +49,10 @@ class SkillFlowServer:
 
         # Track active recording session
         self.active_recording_session: Optional[str] = None
+
+        # Mapping from hash to server_id for proxy tools
+        # When using compact hash format (up_<hash>_toolname), we need to resolve hash back to server_id
+        self._hash_to_server_id: dict[str, str] = {}
 
         # Register tools
         self._register_tools()
@@ -513,9 +519,20 @@ class SkillFlowServer:
 
                     print(f"[Skillflow] Found {len(tools)} tools from {server_config.server_id}")
 
-                    # Create proxy tools with prefixed names
+                    # Create proxy tools with compact naming (max 60 chars)
                     for tool_dict in tools:
-                        proxy_tool_name = f"upstream__{server_config.server_id}__{tool_dict['name']}"
+                        original_tool_name = tool_dict['name']
+                        proxy_tool_name = generate_proxy_tool_name(
+                            server_config.server_id,
+                            original_tool_name
+                        )
+
+                        # Store hash mapping if using hash format
+                        # Parse to check if it's a hash format (up_<hash>_toolname)
+                        server_part, tool_part = parse_proxy_tool_name(proxy_tool_name)
+                        if server_part and len(server_part) <= 8 and all(c in '0123456789abcdef' for c in server_part):
+                            # It's a hash, store the mapping
+                            self._hash_to_server_id[server_part] = server_config.server_id
 
                         # Add server info to description
                         description = tool_dict.get('description', '')
@@ -549,19 +566,30 @@ class SkillFlowServer:
         """Parse upstream tool name to extract server_id and actual tool name.
 
         Args:
-            tool_name: Tool name in format "upstream__<server_id>__<tool_name>"
+            tool_name: Tool name in format:
+                - "up_<server_id>_<tool_name>" (compact)
+                - "up_<hash>_<tool_name>" (hash)
+                - "upstream__<server_id>__<tool_name>" (legacy, deprecated)
 
         Returns:
             Tuple of (server_id, actual_tool_name) or (None, None) if not an upstream tool
         """
-        if not tool_name.startswith("upstream__"):
+        server_part, tool_part = parse_proxy_tool_name(tool_name)
+
+        if not server_part or not tool_part:
             return None, None
 
-        parts = tool_name.split("__", 2)
-        if len(parts) != 3:
-            return None, None
+        # If server_part looks like a hash (4-8 hex chars), resolve to actual server_id
+        if len(server_part) <= 8 and all(c in '0123456789abcdef' for c in server_part):
+            # It's a hash, look up the actual server_id
+            server_id = self._hash_to_server_id.get(server_part)
+            if not server_id:
+                print(f"[Skillflow] Warning: Hash {server_part} not found in mapping")
+                return None, None
+            return server_id, tool_part
 
-        return parts[1], parts[2]
+        # It's a full server_id
+        return server_part, tool_part
 
     def _setup_list_tools(self):
         """Setup the list_tools handler."""
