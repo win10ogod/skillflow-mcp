@@ -54,6 +54,45 @@ SkillFlow 是 Model Context Protocol (MCP) 伺服器的完整實現，能夠錄�
 - ✅ AudioContent（音訊：錄音、TTS）
 - ✅ EmbeddedResource（嵌入資源：檔案、資料）
 
+#### 階段 2：傳輸層擴展 ✅
+- **HTTP+SSE 傳輸**：透過 HTTP 和伺服器推送事件連接 MCP 伺服器
+  - 即時伺服器到客戶端通知
+  - RESTful 工具調用
+  - 自動重新連接處理
+- **WebSocket 傳輸**：與 MCP 伺服器的全雙工通訊
+  - JSON-RPC 2.0 協議支援
+  - Ping/pong 保持連線機制
+  - 雙向訊息處理
+- **靈活的傳輸選擇**：為您的使用案例選擇最佳傳輸方式
+  - stdio：預設，基於進程的通訊
+  - HTTP+SSE：可擴展的 HTTP 架構
+  - WebSocket：即時、持久連接
+
+#### 階段 3：進階控制流程 ✅
+- **條件節點**：技能中的動態分支邏輯
+  - **if/else**：簡單的條件執行
+  - **switch**：多分支條件邏輯
+  - 使用 JSONPath、Jinja2 或 Python 表達式進行條件評估
+  - 預設分支回退支援
+
+- **迴圈節點**：迭代資料並重複操作
+  - **FOR 迴圈**：使用 JSONPath 選擇迭代集合
+  - **WHILE 迴圈**：具有動態評估的條件迴圈
+  - **FOR_RANGE 迴圈**：數值範圍迭代
+  - 使用 `max_iterations` 安全限制以防止無限迴圈
+  - 存取迴圈變數：`$loop.item`、`$loop.index`
+
+- **技能巢狀**：從簡單技能組合複雜技能
+  - 在技能中調用技能以實現模組化設計
+  - 具有適當上下文隔離的遞迴執行
+  - 重複使用現有技能作為構建模組
+
+- **參數轉換**：動態參數生成
+  - **JSONPath**：從先前的輸出中提取和轉換資料
+  - **Jinja2 範本**：使用範本生成複雜參數
+  - 具有上下文感知的轉換，可存取輸入、輸出和迴圈變數
+  - 範本變數：`$inputs.field`、`@step_id.outputs.field`、`$loop.var_name`
+
 ## 📦 安裝
 
 ### 前置需求
@@ -69,9 +108,22 @@ SkillFlow 是 Model Context Protocol (MCP) 伺服器的完整實現，能夠錄�
 git clone <repository-url>
 cd skillflow-mcp
 
-# 安裝依賴項
+# 安裝基本依賴項
 uv sync
+
+# 選用：安裝進階功能
+uv sync --extra http          # HTTP+SSE 傳輸支援
+uv sync --extra websocket     # WebSocket 傳輸支援
+uv sync --extra transforms    # JSONPath 和 Jinja2 參數轉換
+uv sync --extra full          # 所有進階功能
 ```
+
+### 選用依賴項
+
+- **http** (`aiohttp>=3.9.0`): 用於上游 MCP 伺服器的 HTTP+SSE 傳輸
+- **websocket** (`websockets>=12.0`): 用於即時通訊的 WebSocket 傳輸
+- **transforms** (`jsonpath-ng>=1.6.0`, `jinja2>=3.1.0`): 進階參數轉換
+- **full**: 所有選用依賴項的組合
 
 ## ⚙️ 配置
 
@@ -185,15 +237,18 @@ uv sync
 
 ```
 src/skillflow/
-├── schemas.py          # Pydantic 資料模型
-├── storage.py          # JSON 儲存層
-├── skills.py           # 技能管理
-├── recording.py        # 錄製管理器
-├── engine.py           # 執行引擎（DAG、並發）
-├── mcp_clients.py      # 上游 MCP 客戶端管理器
-├── native_mcp_client.py # 原生 MCP 客戶端實現
-├── tool_naming.py      # 智慧工具命名策略
-└── server.py           # MCP 伺服器實現
+├── schemas.py              # Pydantic 資料模型（為階段 3 擴展）
+├── storage.py              # JSON 儲存層
+├── skills.py               # 技能管理
+├── recording.py            # 錄製管理器
+├── engine.py               # 執行引擎（DAG、並發、階段 3 功能）
+├── mcp_clients.py          # 上游 MCP 客戶端管理器
+├── native_mcp_client.py    # 原生 MCP 客戶端實現（stdio）
+├── http_sse_client.py      # HTTP+SSE 傳輸客戶端（階段 2）
+├── websocket_client.py     # WebSocket 傳輸客戶端（階段 2）
+├── parameter_transform.py  # JSONPath 和 Jinja2 轉換（階段 3）
+├── tool_naming.py          # 智慧工具命名策略
+└── server.py               # MCP 伺服器實現
 ```
 
 ### 資料流程
@@ -260,6 +315,96 @@ create_skill_from_session({
 })
 ```
 
+### 階段 3 進階範例
+
+#### 條件節點
+
+創建具有條件邏輯的技能：
+
+```json
+{
+  "node": {
+    "id": "check_status",
+    "kind": "conditional",
+    "conditional_config": {
+      "type": "if_else",
+      "branches": [
+        {
+          "condition": "$.status == 'success'",
+          "nodes": ["success_handler"],
+          "description": "處理成功情況"
+        }
+      ],
+      "default_branch": ["error_handler"]
+    }
+  }
+}
+```
+
+#### 迴圈節點
+
+迭代集合或範圍：
+
+```json
+{
+  "node": {
+    "id": "process_items",
+    "kind": "loop",
+    "loop_config": {
+      "type": "for",
+      "collection_path": "$.items",
+      "iteration_var": "current_item",
+      "body_nodes": ["process_single_item"],
+      "max_iterations": 100
+    }
+  }
+}
+```
+
+#### 參數轉換
+
+使用 JSONPath 提取資料：
+
+```json
+{
+  "parameter_transform": {
+    "engine": "jsonpath",
+    "expression": "$.results[*].id"
+  }
+}
+```
+
+使用 Jinja2 範本進行複雜轉換：
+
+```json
+{
+  "parameter_transform": {
+    "engine": "jinja2",
+    "expression": "{{ value | upper }} - {{ loop.index }}"
+  }
+}
+```
+
+#### 範本變數
+
+在技能參數中存取上下文：
+
+- `$inputs.field_name` - 存取技能輸入參數
+- `@step_id.outputs.field` - 存取先前步驟的輸出
+- `$loop.item` - 當前迴圈項目
+- `$loop.index` - 當前迴圈迭代索引
+
+範例：
+```json
+{
+  "args_template": {
+    "user_id": "$inputs.user_id",
+    "previous_result": "@fetch_data.outputs.result",
+    "item_name": "$loop.item.name"
+  }
+}
+```
+
 ## 📚 文件
 
 - [快速入門指南](docs/QUICKSTART.md)
@@ -288,27 +433,31 @@ uv run pytest tests/ -v
 
 ## 🗺️ 開發藍圖
 
-### 階段 2：傳輸層
-- [ ] HTTP+SSE 傳輸支援
-- [ ] WebSocket 傳輸支援
+### 階段 2：傳輸層 ✅ 完成
+- ✅ HTTP+SSE 傳輸支援
+- ✅ WebSocket 傳輸支援
+- ✅ 上游伺服器的靈活傳輸選擇
 
-### 階段 3：進階功能
-- [ ] 技能巢狀和組合
-- [ ] 條件節點（if/else/switch）
-- [ ] 迴圈節點（for/while）
-- [ ] 參數轉換表達式（JSONPath、Jinja2）
+### 階段 3：進階功能 ✅ 完成
+- ✅ 技能巢狀和組合
+- ✅ 條件節點（if/else/switch）
+- ✅ 迴圈節點（for/while/for_range）
+- ✅ 參數轉換表達式（JSONPath、Jinja2）
+- ✅ 增強的範本變數（$inputs、@outputs、$loop）
 
 ### 階段 4：企業功能
 - [ ] 多租戶支援
 - [ ] 權限和存取控制
 - [ ] 技能市場和分享
 - [ ] 稽核日誌
+- [ ] 進階監控和指標
 
 ### 階段 5：使用者體驗
 - [ ] Web UI 控制面板
 - [ ] 視覺化 DAG 編輯器
 - [ ] 執行監控儀表板
 - [ ] 技能除錯工具
+- [ ] 互動式技能構建器
 
 ## 🤝 貢獻
 
