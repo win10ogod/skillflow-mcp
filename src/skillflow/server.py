@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from mcp.server import Server
-from mcp.types import Tool, TextContent
+from mcp.types import Tool, TextContent, ImageContent
 
 from .engine import ExecutionEngine
 from .mcp_clients import MCPClientManager
@@ -155,13 +155,47 @@ class SkillFlowServer:
                 try:
                     result = await self._execute_tool(server_id, actual_tool_name, arguments)
 
-                    # Format result
+                    # Convert upstream MCP result to Content objects
+                    # MCP protocol returns: {'content': [...], 'isError': bool}
                     import json
                     if isinstance(result, dict):
                         content = result.get("content", [])
-                        if isinstance(content, list):
-                            return [TextContent(type="text", text=str(item)) for item in content]
+                        if isinstance(content, list) and len(content) > 0:
+                            # Convert each content item to appropriate Content type
+                            converted_content = []
+                            for item in content:
+                                if isinstance(item, dict):
+                                    content_type = item.get("type", "text")
+
+                                    if content_type == "image":
+                                        # ImageContent: preserve image data and mimeType
+                                        converted_content.append(ImageContent(
+                                            type="image",
+                                            data=item.get("data", ""),
+                                            mimeType=item.get("mimeType", "image/png"),
+                                        ))
+                                    elif content_type == "text":
+                                        # TextContent: preserve text
+                                        converted_content.append(TextContent(
+                                            type="text",
+                                            text=item.get("text", str(item)),
+                                        ))
+                                    else:
+                                        # Unknown type: convert to text for safety
+                                        converted_content.append(TextContent(
+                                            type="text",
+                                            text=json.dumps(item, indent=2),
+                                        ))
+                                else:
+                                    # Not a dict: convert to text
+                                    converted_content.append(TextContent(
+                                        type="text",
+                                        text=str(item),
+                                    ))
+
+                            return converted_content
                         else:
+                            # No content or empty: return formatted result
                             return [TextContent(type="text", text=json.dumps(result, indent=2))]
                     else:
                         return [TextContent(type="text", text=str(result))]

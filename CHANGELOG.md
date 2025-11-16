@@ -70,6 +70,19 @@ All notable changes to Skillflow-MCP will be documented in this file.
     5. 每个客户端的 `stop()` 终止子进程（先 terminate，5 秒后 kill）
     6. 确保所有资源被正确释放
 
+- **支持上游工具返回图像等多媒体内容** 🖼️
+  - 🎯 **问题**：上游 MCP 工具返回的图像被转换成字符串，AI 模型无法看到实际图像
+  - 🎯 **根本原因**：代理逻辑只处理 TextContent，忽略了 ImageContent 等其他类型
+  - ✅ **解决方案**：
+    - 正确解析上游工具返回的 content 数组
+    - 根据 `type` 字段创建对应的 Content 对象（TextContent, ImageContent 等）
+    - 保留图像的 base64 数据和 mimeType
+    - 让 AI 模型能够看到上游工具返回的图像、文本等所有内容
+  - 📦 **支持的内容类型**：
+    - ✅ TextContent - 文本内容
+    - ✅ ImageContent - 图像（base64 + mimeType）
+    - 🔄 未来可扩展：AudioContent, EmbeddedResource 等
+
 - **改进技能元数据管理**：
   - 技能创建时自动保存 `source_session_id` 到 metadata
   - 允许追溯技能来源的录制会话
