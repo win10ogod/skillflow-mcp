@@ -373,7 +373,7 @@ class WebServer:
                     await websocket.send_json({
                         "type": "update",
                         "metrics": metrics,
-                        "recent_events": [e.model_dump() for e in recent_events]
+                        "recent_events": [e.model_dump(mode='json') for e in recent_events]
                     })
 
             except WebSocketDisconnect:
