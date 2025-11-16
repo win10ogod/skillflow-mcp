@@ -1,0 +1,92 @@
+{
+  "id": "example_notepad_skill",
+  "name": "Open Notepad and Type",
+  "version": 1,
+  "description": "Opens Windows Notepad and types a custom message",
+  "tags": ["example", "windows", "automation"],
+  "created_at": "2025-01-16T00:00:00Z",
+  "updated_at": "2025-01-16T00:00:00Z",
+  "author": {
+    "workspace_id": "default",
+    "client_id": "example"
+  },
+  "inputs_schema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "description": "Text to type into Notepad"
+      }
+    },
+    "required": ["text"]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "window_handle": {
+        "type": "string"
+      }
+    }
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "step_1",
+        "kind": "tool_call",
+        "server": "os-tools",
+        "tool": "open_app",
+        "args_template": {
+          "app_name": "notepad"
+        },
+        "export_outputs": {
+          "window_handle": "$.window_handle"
+        },
+        "depends_on": [],
+        "error_strategy": "fail_fast"
+      },
+      {
+        "id": "step_2",
+        "kind": "tool_call",
+        "server": "os-tools",
+        "tool": "focus_window",
+        "args_template": {
+          "window_handle": "@step_1.outputs.window_handle"
+        },
+        "export_outputs": {},
+        "depends_on": ["step_1"],
+        "error_strategy": "fail_fast"
+      },
+      {
+        "id": "step_3",
+        "kind": "tool_call",
+        "server": "os-tools",
+        "tool": "type_text",
+        "args_template": {
+          "window_handle": "@step_1.outputs.window_handle",
+          "text": "$inputs.text"
+        },
+        "export_outputs": {},
+        "depends_on": ["step_2"],
+        "error_strategy": "fail_fast"
+      }
+    ],
+    "edges": [
+      {
+        "from": "step_1",
+        "to": "step_2"
+      },
+      {
+        "from": "step_2",
+        "to": "step_3"
+      }
+    ],
+    "concurrency": {
+      "mode": "sequential",
+      "phases": {}
+    }
+  },
+  "metadata": {}
+}

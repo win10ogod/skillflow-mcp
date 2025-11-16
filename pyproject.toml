@@ -1,0 +1,29 @@
+[project]
+name = "skillflow-mcp"
+version = "0.1.0"
+description = "MCP server for recording and replaying tool chains as skills"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiofiles>=25.1.0",
+    "filelock>=3.20.0",
+    "mcp[cli]>=1.21.1",
+    "msgspec>=0.19.0",
+    "pydantic>=2.12.4",
+]
+
+[project.scripts]
+skillflow = "skillflow.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/skillflow"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.1",
+    "pytest-asyncio>=1.3.0",
+]

@@ -1,0 +1,32 @@
+{
+  "servers": {
+    "os-tools": {
+      "server_id": "os-tools",
+      "name": "OS Automation Tools",
+      "transport": "stdio",
+      "config": {
+        "command": "python",
+        "args": ["-m", "os_tools_mcp"],
+        "env": null
+      },
+      "enabled": true,
+      "metadata": {
+        "description": "Provides OS-level automation tools like window management, keyboard input, etc."
+      }
+    },
+    "web-browser": {
+      "server_id": "web-browser",
+      "name": "Web Browser Automation",
+      "transport": "stdio",
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-puppeteer"],
+        "env": null
+      },
+      "enabled": false,
+      "metadata": {
+        "description": "Browser automation via Puppeteer"
+      }
+    }
+  }
+}
