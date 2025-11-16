@@ -1,0 +1,76 @@
+{
+  "servers": {
+    "filesystem": {
+      "server_id": "filesystem",
+      "name": "File System Tools",
+      "transport": "stdio",
+      "config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-filesystem",
+          "/tmp"
+        ],
+        "env": null
+      },
+      "enabled": true,
+      "metadata": {
+        "description": "提供檔案系統操作工具",
+        "tools": [
+          "read_file",
+          "write_file",
+          "list_directory",
+          "search_files"
+        ]
+      }
+    },
+    "puppeteer": {
+      "server_id": "puppeteer",
+      "name": "Browser Automation",
+      "transport": "stdio",
+      "config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-puppeteer"
+        ],
+        "env": null
+      },
+      "enabled": true,
+      "metadata": {
+        "description": "使用 Puppeteer 進行瀏覽器自動化",
+        "tools": [
+          "puppeteer_navigate",
+          "puppeteer_screenshot",
+          "puppeteer_click"
+        ]
+      }
+    },
+    "windows-driver-input": {
+      "server_id": "windows-driver-input",
+      "name": "Windows Driver Input",
+      "transport": "stdio",
+      "config": {
+        "args": [
+          "--directory",
+          "I:\\凌星開發計畫\\凌星OS\\input_driver_server",
+          "run",
+          "main.py"
+        ],
+        "command": "uv",
+        "env": {
+          "WINDOWS_INPUT_LOG_LEVEL": "INFO",
+          "WINDOWS_MCP_INPUT_BACKEND": "ibsim-dll",
+          "WINDOWS_MCP_INPUT_DRIVER": "SendInput",
+          "WINDOWS_MCP_RATE_CPS": "8.0",
+          "WINDOWS_MCP_RATE_KPS": "12.0",
+          "WINDOWS_MCP_RATE_MAX_DELTA": "60",
+          "WINDOWS_MCP_RATE_MOVE_HZ": "60",
+          "WINDOWS_MCP_RATE_SMOOTH": "0.0"
+        }
+      },
+      "enabled": true,
+      "metadata": {}
+    }
+  }
+}

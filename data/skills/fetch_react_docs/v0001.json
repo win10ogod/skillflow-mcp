@@ -1,0 +1,84 @@
+{
+  "id": "fetch_react_docs",
+  "name": "獲取 React 文檔",
+  "version": 1,
+  "description": "從 context7 獲取 React 文檔並輸出給用戶",
+  "tags": ["context7", "documentation", "react", "test"],
+  "created_at": "2025-01-16T08:00:00Z",
+  "updated_at": "2025-01-16T08:00:00Z",
+  "author": {
+    "workspace_id": "default",
+    "client_id": "test-client"
+  },
+  "inputs_schema": {
+    "type": "object",
+    "properties": {
+      "topic": {
+        "type": "string",
+        "description": "要查詢的 React 主題（例如：hooks, components, state）"
+      }
+    },
+    "required": ["topic"]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "documentation": {
+        "type": "string",
+        "description": "獲取到的文檔內容"
+      },
+      "library_id": {
+        "type": "string",
+        "description": "使用的 library ID"
+      }
+    }
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "step_1_resolve_library",
+        "kind": "tool_call",
+        "server": "context7",
+        "tool": "resolve-library-id",
+        "args_template": {
+          "libraryName": "react"
+        },
+        "export_outputs": {
+          "library_id": "$.library_id"
+        },
+        "depends_on": [],
+        "error_strategy": "fail_fast"
+      },
+      {
+        "id": "step_2_get_docs",
+        "kind": "tool_call",
+        "server": "context7",
+        "tool": "get-library-docs",
+        "args_template": {
+          "context7CompatibleLibraryID": "/websites/react_dev",
+          "topic": "$inputs.topic",
+          "tokens": 5000
+        },
+        "export_outputs": {
+          "documentation": "$.documentation"
+        },
+        "depends_on": ["step_1_resolve_library"],
+        "error_strategy": "fail_fast"
+      }
+    ],
+    "edges": [
+      {
+        "from": "step_1_resolve_library",
+        "to": "step_2_get_docs"
+      }
+    ],
+    "concurrency": {
+      "mode": "sequential",
+      "phases": {}
+    }
+  },
+  "metadata": {
+    "test_skill": true,
+    "example_usage": "skill__fetch_react_docs(topic='hooks')"
+  }
+}

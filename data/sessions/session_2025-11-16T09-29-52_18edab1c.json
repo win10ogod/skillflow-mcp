@@ -1,0 +1,11 @@
+{
+  "id": "session_2025-11-16T09-29-52_18edab1c",
+  "started_at": "2025-11-16T09:29:52.590857",
+  "ended_at": "2025-11-16T09:29:57.744686",
+  "client_id": "default-client",
+  "workspace_id": "default",
+  "logs": [],
+  "metadata": {
+    "name": "move_mouse_to_center"
+  }
+}

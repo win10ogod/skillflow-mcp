@@ -1,0 +1,103 @@
+{
+  "id": "fetch_library_docs",
+  "name": "獲取庫文檔",
+  "version": 1,
+  "description": "使用 context7 獲取任意 JavaScript 庫的文檔",
+  "tags": [
+    "context7",
+    "documentation",
+    "test"
+  ],
+  "created_at": "2025-11-16T08:24:40.542957",
+  "updated_at": "2025-11-16T08:24:40.542959",
+  "author": {
+    "workspace_id": "default",
+    "client_id": "test-script",
+    "metadata": {}
+  },
+  "inputs_schema": {
+    "type": "object",
+    "properties": {
+      "library_name": {
+        "type": "string",
+        "description": "要查詢的庫名稱（例如：react, vue, svelte）"
+      },
+      "topic": {
+        "type": "string",
+        "description": "要查詢的主題（可選）"
+      }
+    },
+    "required": [
+      "library_name"
+    ]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "library_info": {
+        "type": "object",
+        "description": "庫的基本信息"
+      },
+      "documentation": {
+        "type": "string",
+        "description": "文檔內容"
+      }
+    }
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "resolve_library",
+        "kind": "tool_call",
+        "server": null,
+        "tool": "mcp__context7__resolve-library-id",
+        "args_template": {
+          "libraryName": "$inputs.library_name"
+        },
+        "export_outputs": {
+          "library_id": "$.library_id",
+          "library_info": "$"
+        },
+        "depends_on": [],
+        "error_strategy": "fail_fast",
+        "retry_config": null,
+        "timeout_ms": null,
+        "metadata": {}
+      },
+      {
+        "id": "get_docs",
+        "kind": "tool_call",
+        "server": null,
+        "tool": "mcp__context7__get-library-docs",
+        "args_template": {
+          "context7CompatibleLibraryID": "@resolve_library.outputs.library_id",
+          "topic": "$inputs.topic",
+          "tokens": 3000
+        },
+        "export_outputs": {
+          "documentation": "$"
+        },
+        "depends_on": [
+          "resolve_library"
+        ],
+        "error_strategy": "fail_fast",
+        "retry_config": null,
+        "timeout_ms": null,
+        "metadata": {}
+      }
+    ],
+    "edges": [
+      {
+        "from_node": "resolve_library",
+        "to_node": "get_docs",
+        "condition": null
+      }
+    ],
+    "concurrency": {
+      "mode": "sequential",
+      "phases": {},
+      "max_parallel": null
+    }
+  },
+  "metadata": {}
+}

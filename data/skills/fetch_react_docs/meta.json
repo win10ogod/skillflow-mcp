@@ -1,0 +1,13 @@
+{
+  "id": "fetch_react_docs",
+  "name": "獲取 React 文檔",
+  "version": 1,
+  "description": "從 context7 獲取 React 文檔並輸出給用戶",
+  "tags": ["context7", "documentation", "react", "test"],
+  "created_at": "2025-01-16T08:00:00Z",
+  "updated_at": "2025-01-16T08:00:00Z",
+  "author": {
+    "workspace_id": "default",
+    "client_id": "test-client"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "fetch_library_docs",
+  "name": "獲取庫文檔",
+  "version": 1,
+  "description": "使用 context7 獲取任意 JavaScript 庫的文檔",
+  "tags": [
+    "context7",
+    "documentation",
+    "test"
+  ],
+  "created_at": "2025-11-16T08:24:40.542957",
+  "updated_at": "2025-11-16T08:24:40.542959",
+  "author": {
+    "workspace_id": "default",
+    "client_id": "test-script",
+    "metadata": {}
+  }
+}
