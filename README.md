@@ -68,6 +68,55 @@ Full MCP protocol content type support:
   - HTTP+SSE: Scalable, HTTP-based architecture
   - WebSocket: Real-time, persistent connections
 
+#### Phase 4 & 5: Web UI and Monitoring ✅
+- **Web Control Panel**: Modern web interface for managing SkillFlow
+  - Accessible at `http://localhost:8080` when web server is running
+  - Real-time WebSocket updates for live metrics
+  - Responsive design with Tailwind CSS
+
+- **Visual DAG Editor**: Interactive graph editor for skills
+  - Drag-and-drop node creation
+  - Visual connection builder
+  - Auto-layout with Dagre algorithm
+  - Real-time graph visualization using Cytoscape.js
+  - Node property editing
+
+- **Execution Monitoring Dashboard**: Real-time execution tracking
+  - Live metrics: active executions, throughput, success rate
+  - Performance charts: execution timeline, distribution
+  - Recent execution history
+  - Automatic refresh every 3 seconds
+
+- **Skill Debugging Tools**: Interactive debugging interface
+  - Skill definition inspector
+  - Execution graph visualizer
+  - Dry run simulation
+  - Test input/output inspector
+  - Execution trace viewer
+
+- **Interactive Skill Builder**: Step-by-step wizard
+  - 4-step process: Info → Nodes → Connections → Review
+  - Visual node management
+  - Connection builder
+  - JSON preview
+  - One-click skill creation
+
+- **Audit Logging**: Comprehensive event tracking
+  - All skill operations logged
+  - Tool call tracking
+  - Server events monitoring
+  - Severity levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  - Time-series storage by date
+  - Queryable audit trail
+
+- **Advanced Metrics**: Performance monitoring
+  - Execution time percentiles (P50, P95, P99)
+  - Throughput tracking (executions per minute)
+  - Error rate calculation
+  - Memory usage monitoring
+  - Concurrent execution tracking
+  - Prometheus export format
+
 #### Phase 3: Advanced Control Flow ✅
 - **Conditional Nodes**: Dynamic branching logic in skills
   - **if/else**: Simple conditional execution
@@ -115,6 +164,7 @@ uv sync
 uv sync --extra http          # HTTP+SSE transport support
 uv sync --extra websocket     # WebSocket transport support
 uv sync --extra transforms    # JSONPath & Jinja2 parameter transformations
+uv sync --extra web           # Web UI and monitoring dashboard
 uv sync --extra full          # All advanced features
 ```
 
@@ -123,6 +173,7 @@ uv sync --extra full          # All advanced features
 - **http** (`aiohttp>=3.9.0`): HTTP+SSE transport for upstream MCP servers
 - **websocket** (`websockets>=12.0`): WebSocket transport for real-time communication
 - **transforms** (`jsonpath-ng>=1.6.0`, `jinja2>=3.1.0`): Advanced parameter transformations
+- **web** (`fastapi>=0.109.0`, `uvicorn>=0.27.0`, `psutil>=5.9.0`): Web UI control panel, monitoring dashboard, and debugging tools
 - **full**: All optional dependencies combined
 
 ## ⚙️ Configuration
@@ -445,19 +496,25 @@ uv run pytest tests/ -v
 - ✅ Parameter transformation expressions (JSONPath, Jinja2)
 - ✅ Enhanced template variables ($inputs, @outputs, $loop)
 
-### Phase 4: Enterprise Features
+### Phase 4: Audit & Monitoring ✅ COMPLETE
+- ✅ Audit logs with event tracking
+- ✅ Advanced monitoring and metrics
+- ✅ Performance statistics and analytics
+- ✅ Real-time metric collection
+- ✅ Prometheus metrics export
+
+### Phase 5: User Experience ✅ COMPLETE
+- ✅ Web UI control panel
+- ✅ Visual DAG editor with Cytoscape.js
+- ✅ Execution monitoring dashboard
+- ✅ Skill debugging tools
+- ✅ Interactive skill builder wizard
+
+### Phase 6: Enterprise Features (Future)
 - [ ] Multi-tenancy support
 - [ ] Permissions and access control
 - [ ] Skill marketplace and sharing
-- [ ] Audit logs
-- [ ] Advanced monitoring and metrics
-
-### Phase 5: User Experience
-- [ ] Web UI control panel
-- [ ] Visual DAG editor
-- [ ] Execution monitoring dashboard
-- [ ] Skill debugging tools
-- [ ] Interactive skill builder
+- [ ] Advanced security features
 
 ## 🤝 Contributing
 
