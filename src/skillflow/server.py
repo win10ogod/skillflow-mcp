@@ -41,10 +41,11 @@ class SkillFlowServer:
         self.recording_manager = RecordingManager(self.storage)
         self.mcp_clients = MCPClientManager(self.storage)
 
-        # Initialize execution engine with tool executor
+        # Initialize execution engine with tool executor and skill manager for nesting support
         self.engine = ExecutionEngine(
             storage=self.storage,
             tool_executor=self._execute_tool,
+            skill_manager=self.skill_manager,  # Enable skill nesting (Phase 3)
         )
 
         # Track active recording session

@@ -1,4 +1,4 @@
-"""Execution engine for skill DAG execution."""
+"""Execution engine for skill DAG execution with advanced features support."""
 
 import asyncio
 import re
@@ -9,7 +9,9 @@ from uuid import uuid4
 
 from .schemas import (
     ConcurrencyMode,
+    ConditionalType,
     ErrorStrategy,
+    LoopType,
     NodeExecution,
     NodeKind,
     NodeStatus,
@@ -21,6 +23,15 @@ from .schemas import (
     SkillRunStatus,
 )
 from .storage import StorageLayer
+
+# Import parameter transformation utilities
+try:
+    from .parameter_transform import transform_parameter, evaluate_condition
+    TRANSFORMS_AVAILABLE = True
+except ImportError:
+    TRANSFORMS_AVAILABLE = False
+    transform_parameter = None
+    evaluate_condition = None
 
 
 class ExecutionContext:
@@ -42,16 +53,20 @@ class ExecutionContext:
         self.node_statuses: dict[str, NodeStatus] = {}
         self.node_executions: list[NodeExecution] = []
         self.cancelled = False
+        # Advanced features support
+        self.loop_vars: dict[str, Any] = {}  # Loop iteration variables
+        self.parent_context: Optional['ExecutionContext'] = None  # For nested skill calls
 
 
 class ExecutionEngine:
-    """Engine for executing skill DAGs with concurrency support."""
+    """Engine for executing skill DAGs with concurrency support and advanced features."""
 
     def __init__(
         self,
         storage: StorageLayer,
         tool_executor: Callable,
         max_concurrency: int = 32,
+        skill_manager: Optional[Any] = None,  # SkillManager, optional for skill nesting
     ):
         """Initialize execution engine.
 
@@ -59,10 +74,12 @@ class ExecutionEngine:
             storage: Storage layer for logging
             tool_executor: Async function to execute tools (server, tool, args) -> result
             max_concurrency: Maximum concurrent tasks
+            skill_manager: Optional skill manager for nested skill execution
         """
         self.storage = storage
         self.tool_executor = tool_executor
         self.max_concurrency = max_concurrency
+        self.skill_manager = skill_manager
         self._active_runs: dict[str, ExecutionContext] = {}
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
@@ -300,7 +317,7 @@ class ExecutionEngine:
                 finished.add(node_id)
 
     async def _execute_node(self, context: ExecutionContext, node: SkillNode) -> None:
-        """Execute a single node.
+        """Execute a single node with support for all node types.
 
         Args:
             context: Execution context
@@ -311,14 +328,32 @@ class ExecutionEngine:
             started_at = datetime.utcnow()
 
             try:
-                # Resolve arguments
+                # Resolve arguments with parameter transformation support
                 args = self._resolve_args(context, node.args_template)
+
+                # Apply parameter transformation if configured
+                if node.parameter_transform and TRANSFORMS_AVAILABLE:
+                    transform_context = {
+                        "inputs": context.inputs,
+                        "outputs": context.outputs,
+                        "loop_vars": context.loop_vars,
+                    }
+                    args = transform_parameter(
+                        args,
+                        node.parameter_transform.engine,
+                        node.parameter_transform.expression,
+                        transform_context,
+                    )
 
                 # Execute based on node kind
                 if node.kind == NodeKind.TOOL_CALL:
                     result = await self._execute_tool_call(context, node, args)
                 elif node.kind == NodeKind.SKILL_CALL:
                     result = await self._execute_skill_call(context, node, args)
+                elif node.kind == NodeKind.CONDITIONAL:
+                    result = await self._execute_conditional(context, node, args)
+                elif node.kind == NodeKind.LOOP:
+                    result = await self._execute_loop(context, node, args)
                 else:
                     result = {}
 
@@ -396,7 +431,7 @@ class ExecutionEngine:
         node: SkillNode,
         args: dict[str, Any],
     ) -> dict[str, Any]:
-        """Execute a nested skill call.
+        """Execute a nested skill call (Phase 3 feature).
 
         Args:
             context: Execution context
@@ -406,9 +441,244 @@ class ExecutionEngine:
         Returns:
             Skill execution result
         """
-        # This would load and execute another skill
-        # For now, return placeholder
-        return {"nested_skill": node.tool}
+        if not node.skill_id:
+            raise ValueError(f"SKILL_CALL node {node.id} missing skill_id")
+
+        if not self.skill_manager:
+            raise ValueError("Skill nesting requires skill_manager in ExecutionEngine")
+
+        # Load the nested skill
+        nested_skill = await self.skill_manager.get_skill(node.skill_id)
+
+        # Execute the nested skill with provided arguments
+        result = await self.run_skill(nested_skill, args)
+
+        # Return outputs from nested skill execution
+        return result.outputs
+
+    async def _execute_conditional(
+        self,
+        context: ExecutionContext,
+        node: SkillNode,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Execute a conditional node (Phase 3 feature).
+
+        Args:
+            context: Execution context
+            node: Node being executed
+            args: Resolved arguments
+
+        Returns:
+            Results from executed branch
+        """
+        if not node.conditional_config:
+            raise ValueError(f"CONDITIONAL node {node.id} missing conditional_config")
+
+        config = node.conditional_config
+        eval_context = {
+            "inputs": context.inputs,
+            "outputs": context.outputs,
+            "loop_vars": context.loop_vars,
+            "args": args,
+        }
+
+        executed_branch = None
+
+        # Evaluate branches in order
+        for branch in config.branches:
+            if not TRANSFORMS_AVAILABLE or not evaluate_condition:
+                # Fallback: simple boolean evaluation
+                condition_result = bool(eval_context.get(branch.condition))
+            else:
+                condition_result = evaluate_condition(branch.condition, eval_context)
+
+            if condition_result:
+                executed_branch = branch.nodes
+                break
+
+        # Use default branch if no condition matched
+        if executed_branch is None and config.default_branch:
+            executed_branch = config.default_branch
+
+        if executed_branch is None:
+            return {"branch_executed": None, "results": []}
+
+        # Execute nodes in the selected branch
+        results = []
+        nodes_by_id = {n.id: n for n in context.skill.graph.nodes}
+
+        for node_id in executed_branch:
+            if node_id in nodes_by_id:
+                branch_node = nodes_by_id[node_id]
+                await self._execute_node(context, branch_node)
+                results.append({
+                    "node_id": node_id,
+                    "output": context.node_outputs.get(node_id, {}),
+                })
+
+        return {
+            "branch_executed": executed_branch,
+            "results": results,
+        }
+
+    async def _execute_loop(
+        self,
+        context: ExecutionContext,
+        node: SkillNode,
+        args: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Execute a loop node (Phase 3 feature).
+
+        Args:
+            context: Execution context
+            node: Node being executed
+            args: Resolved arguments
+
+        Returns:
+            Results from all iterations
+        """
+        if not node.loop_config:
+            raise ValueError(f"LOOP node {node.id} missing loop_config")
+
+        config = node.loop_config
+        iterations = []
+        iteration_count = 0
+
+        nodes_by_id = {n.id: n for n in context.skill.graph.nodes}
+
+        # Prepare iteration based on loop type
+        if config.type == LoopType.FOR:
+            # Iterate over collection
+            if not config.collection_path:
+                raise ValueError(f"FOR loop {node.id} missing collection_path")
+
+            collection = self._extract_jsonpath(
+                {"inputs": context.inputs, "outputs": context.outputs},
+                config.collection_path
+            )
+
+            if not isinstance(collection, list):
+                collection = [collection] if collection is not None else []
+
+            for item in collection:
+                if config.max_iterations and iteration_count >= config.max_iterations:
+                    break
+
+                # Set loop variable
+                context.loop_vars[config.iteration_var] = item
+                context.loop_vars["index"] = iteration_count
+
+                # Execute loop body
+                iteration_results = await self._execute_loop_body(
+                    context, config.body_nodes, nodes_by_id
+                )
+                iterations.append({
+                    "iteration": iteration_count,
+                    "item": item,
+                    "results": iteration_results,
+                })
+                iteration_count += 1
+
+        elif config.type == LoopType.WHILE:
+            # Loop while condition is true
+            if not config.condition:
+                raise ValueError(f"WHILE loop {node.id} missing condition")
+
+            while True:
+                if config.max_iterations and iteration_count >= config.max_iterations:
+                    break
+
+                # Evaluate condition
+                eval_context = {
+                    "inputs": context.inputs,
+                    "outputs": context.outputs,
+                    "loop_vars": context.loop_vars,
+                }
+
+                if not TRANSFORMS_AVAILABLE or not evaluate_condition:
+                    condition_result = bool(eval_context.get(config.condition))
+                else:
+                    condition_result = evaluate_condition(config.condition, eval_context)
+
+                if not condition_result:
+                    break
+
+                # Set loop variable
+                context.loop_vars["index"] = iteration_count
+
+                # Execute loop body
+                iteration_results = await self._execute_loop_body(
+                    context, config.body_nodes, nodes_by_id
+                )
+                iterations.append({
+                    "iteration": iteration_count,
+                    "results": iteration_results,
+                })
+                iteration_count += 1
+
+        elif config.type == LoopType.FOR_RANGE:
+            # Iterate over numeric range
+            start = config.range_start or 0
+            end = config.range_end or 0
+            step = config.range_step or 1
+
+            for i in range(start, end, step):
+                if config.max_iterations and iteration_count >= config.max_iterations:
+                    break
+
+                # Set loop variable
+                context.loop_vars[config.iteration_var] = i
+                context.loop_vars["index"] = iteration_count
+
+                # Execute loop body
+                iteration_results = await self._execute_loop_body(
+                    context, config.body_nodes, nodes_by_id
+                )
+                iterations.append({
+                    "iteration": iteration_count,
+                    "value": i,
+                    "results": iteration_results,
+                })
+                iteration_count += 1
+
+        # Clear loop variables
+        context.loop_vars.clear()
+
+        return {
+            "loop_type": config.type.value,
+            "iterations": iterations,
+            "total_iterations": iteration_count,
+        }
+
+    async def _execute_loop_body(
+        self,
+        context: ExecutionContext,
+        body_node_ids: list[str],
+        nodes_by_id: dict[str, SkillNode],
+    ) -> list[dict[str, Any]]:
+        """Execute nodes in a loop body.
+
+        Args:
+            context: Execution context
+            body_node_ids: Node IDs to execute in loop body
+            nodes_by_id: Map of node IDs to nodes
+
+        Returns:
+            Results from executed nodes
+        """
+        results = []
+
+        for node_id in body_node_ids:
+            if node_id in nodes_by_id:
+                body_node = nodes_by_id[node_id]
+                await self._execute_node(context, body_node)
+                results.append({
+                    "node_id": node_id,
+                    "output": context.node_outputs.get(node_id, {}),
+                })
+
+        return results
 
     def _can_execute_node(
         self,
@@ -469,11 +739,12 @@ class ExecutionEngine:
         return resolved
 
     def _resolve_template_string(self, context: ExecutionContext, template: str) -> Any:
-        """Resolve a template string.
+        """Resolve a template string with advanced features support.
 
         Supports:
         - $inputs.field -> context.inputs["field"]
         - @step_id.outputs.field -> context.node_outputs["step_id"]["field"]
+        - $loop.var_name -> context.loop_vars["var_name"] (Phase 3)
 
         Args:
             context: Execution context
@@ -489,6 +760,11 @@ class ExecutionEngine:
         if template.startswith("$inputs."):
             field = template[8:]  # Remove "$inputs."
             return self._get_nested_value(context.inputs, field)
+
+        # Match $loop.var_name (Phase 3 - loop variables)
+        if template.startswith("$loop."):
+            var_name = template[6:]  # Remove "$loop."
+            return context.loop_vars.get(var_name)
 
         # Match @step_id.outputs.field
         if template.startswith("@"):

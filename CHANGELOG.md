@@ -108,13 +108,37 @@ pip install skillflow-mcp[full]
 
 - ✅ Phase 1: Core Features (Complete)
 - ✅ Phase 2: Transport Layer (HTTP+SSE ✅, WebSocket ✅, Streamable HTTP ⏳)
-- ⚠️ Phase 3: Advanced Features (Schemas ready, engine implementation pending)
+- ✅ Phase 3: Advanced Features (COMPLETE!)
   - ✅ Schemas defined for all features
   - ✅ Parameter transformation module complete
-  - ⏳ Engine execution logic for conditional nodes (pending)
-  - ⏳ Engine execution logic for loop nodes (pending)
-  - ⏳ Engine execution logic for skill nesting (pending)
-  - ⏳ Integration of new transports into mcp_clients.py (pending)
+  - ✅ Engine execution logic for conditional nodes (IMPLEMENTED in engine.py)
+  - ✅ Engine execution logic for loop nodes (IMPLEMENTED in engine.py)
+  - ✅ Engine execution logic for skill nesting (IMPLEMENTED in engine.py)
+  - ✅ Parameter transformation integration
+  - ✅ Loop variable support ($loop.var_name)
+  - ⏳ Integration of new transports into mcp_clients.py (next release)
+
+### Engine Enhancements (engine.py)
+
+- **ExecutionContext Extensions**:
+  - Added `loop_vars` dictionary for loop iteration variables
+  - Added `parent_context` for nested skill calls
+
+- **ExecutionEngine Extensions**:
+  - Added `skill_manager` parameter for skill nesting support
+  - `_execute_conditional()` - Full conditional node execution
+  - `_execute_loop()` - Complete loop node execution (FOR, WHILE, FOR_RANGE)
+  - `_execute_loop_body()` - Loop body execution with proper scoping
+  - `_execute_skill_call()` - Complete nested skill execution
+  - Extended `_resolve_template_string()` to support $loop.var_name
+  - Parameter transformation applied in `_execute_node()`
+
+### Template Variable Support
+
+Skills now support three types of template variables:
+- `$inputs.field` - Access skill input parameters
+- `@step_id.outputs.field` - Access outputs from previous steps
+- `$loop.var_name` - Access loop iteration variables (Phase 3)
 
 ## [Unreleased]
 
