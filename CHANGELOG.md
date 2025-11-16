@@ -70,18 +70,25 @@ All notable changes to Skillflow-MCP will be documented in this file.
     5. 每个客户端的 `stop()` 终止子进程（先 terminate，5 秒后 kill）
     6. 确保所有资源被正确释放
 
-- **支持上游工具返回图像等多媒体内容** 🖼️
-  - 🎯 **问题**：上游 MCP 工具返回的图像被转换成字符串，AI 模型无法看到实际图像
-  - 🎯 **根本原因**：代理逻辑只处理 TextContent，忽略了 ImageContent 等其他类型
+- **完整支持 MCP 协议的所有内容类型** 🖼️🔊📦
+  - 🎯 **问题**：上游 MCP 工具返回的图像、音频等多媒体内容被转换成字符串，AI 模型无法看到实际内容
+  - 🎯 **根本原因**：代理逻辑只处理 TextContent，忽略了其他所有内容类型
   - ✅ **解决方案**：
     - 正确解析上游工具返回的 content 数组
-    - 根据 `type` 字段创建对应的 Content 对象（TextContent, ImageContent 等）
-    - 保留图像的 base64 数据和 mimeType
-    - 让 AI 模型能够看到上游工具返回的图像、文本等所有内容
-  - 📦 **支持的内容类型**：
-    - ✅ TextContent - 文本内容
-    - ✅ ImageContent - 图像（base64 + mimeType）
-    - 🔄 未来可扩展：AudioContent, EmbeddedResource 等
+    - 根据 `type` 字段创建对应的 Content 对象
+    - 保留所有原始数据（base64、mimeType、resource 等）
+    - 让 AI 模型能够看到上游工具返回的**所有类型**的内容
+  - 📦 **支持的内容类型**（完整覆盖 MCP 协议）：
+    - ✅ **TextContent** - 文本内容
+    - ✅ **ImageContent** - 图像（截图、图表等，base64 + mimeType）
+    - ✅ **AudioContent** - 音频（录音、TTS 等，base64 + mimeType）
+    - ✅ **EmbeddedResource** - 嵌入资源（文件、数据等）
+    - ✅ **未知类型** - 自动转为 TextContent，确保向前兼容
+  - 🌟 **实际效果**：
+    - 上游工具返回截图 → AI 模型能看到并分析图像 ✅
+    - 上游工具返回音频 → AI 模型能处理音频内容 ✅
+    - 上游工具返回文件 → AI 模型能访问文件资源 ✅
+    - 混合返回（文本+图像+音频）→ 全部正确传递 ✅
 
 - **改进技能元数据管理**：
   - 技能创建时自动保存 `source_session_id` 到 metadata

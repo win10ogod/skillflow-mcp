@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from mcp.server import Server
-from mcp.types import Tool, TextContent, ImageContent
+from mcp.types import Tool, TextContent, ImageContent, AudioContent, EmbeddedResource
 
 from .engine import ExecutionEngine
 from .mcp_clients import MCPClientManager
@@ -157,6 +157,7 @@ class SkillFlowServer:
 
                     # Convert upstream MCP result to Content objects
                     # MCP protocol returns: {'content': [...], 'isError': bool}
+                    # Support all MCP content types: text, image, audio, resource
                     import json
                     if isinstance(result, dict):
                         content = result.get("content", [])
@@ -167,24 +168,38 @@ class SkillFlowServer:
                                 if isinstance(item, dict):
                                     content_type = item.get("type", "text")
 
-                                    if content_type == "image":
-                                        # ImageContent: preserve image data and mimeType
+                                    if content_type == "text":
+                                        # TextContent: text messages
+                                        converted_content.append(TextContent(
+                                            type="text",
+                                            text=item.get("text", str(item)),
+                                        ))
+                                    elif content_type == "image":
+                                        # ImageContent: images (screenshots, charts, etc.)
                                         converted_content.append(ImageContent(
                                             type="image",
                                             data=item.get("data", ""),
                                             mimeType=item.get("mimeType", "image/png"),
                                         ))
-                                    elif content_type == "text":
-                                        # TextContent: preserve text
-                                        converted_content.append(TextContent(
-                                            type="text",
-                                            text=item.get("text", str(item)),
+                                    elif content_type == "audio":
+                                        # AudioContent: audio files (recordings, TTS, etc.)
+                                        converted_content.append(AudioContent(
+                                            type="audio",
+                                            data=item.get("data", ""),
+                                            mimeType=item.get("mimeType", "audio/wav"),
+                                        ))
+                                    elif content_type == "resource":
+                                        # EmbeddedResource: embedded resources (files, data, etc.)
+                                        converted_content.append(EmbeddedResource(
+                                            type="resource",
+                                            resource=item.get("resource", {}),
                                         ))
                                     else:
                                         # Unknown type: convert to text for safety
+                                        # This ensures forward compatibility with future content types
                                         converted_content.append(TextContent(
                                             type="text",
-                                            text=json.dumps(item, indent=2),
+                                            text=json.dumps(item, indent=2, ensure_ascii=False),
                                         ))
                                 else:
                                     # Not a dict: convert to text
@@ -196,7 +211,7 @@ class SkillFlowServer:
                             return converted_content
                         else:
                             # No content or empty: return formatted result
-                            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+                            return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
                     else:
                         return [TextContent(type="text", text=str(result))]
 
