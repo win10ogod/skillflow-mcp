@@ -129,40 +129,77 @@
         }
 
         async function updateMonitoring() {
-            const metrics = await fetch('/api/metrics/dashboard').then(r => r.json());
-            const events = await fetch('/api/audit/events?event_type=skill_executed&limit=50').then(r => r.json());
+            try {
+                const metrics = await fetch('/api/metrics/dashboard').then(r => r.json());
+                const events = await fetch('/api/audit/events?event_type=skill_executed&limit=50').then(r => r.json());
 
-            document.getElementById('live-active').textContent = metrics.current.active_executions;
-            document.getElementById('live-avg-time').textContent =
-                Math.round(metrics.execution_time.p50) + 'ms';
+                // Update metric cards
+                document.getElementById('live-active').textContent = metrics.current?.active_executions || 0;
+                document.getElementById('live-avg-time').textContent =
+                    Math.round(metrics.execution_time?.p50 || 0) + 'ms';
 
-            const successRate = 100 - (metrics.error_rate || 0);
-            document.getElementById('live-success-rate').textContent =
-                successRate.toFixed(1) + '%';
+                const successRate = 100 - (metrics.error_rate || 0);
+                document.getElementById('live-success-rate').textContent =
+                    successRate.toFixed(1) + '%';
 
-            // Update table
-            const tbody = document.getElementById('executions-table');
-            tbody.innerHTML = events.events.slice(0, 10).map(event => `
-                <tr>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        ${event.run_id || 'N/A'}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        ${event.skill_id || 'N/A'}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                            ${event.event_type}
-                        </span>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        ${event.duration_ms ? Math.round(event.duration_ms) + 'ms' : '-'}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        ${new Date(event.timestamp).toLocaleString()}
-                    </td>
-                </tr>
-            `).join('');
+                // Update timeline chart (keep last 30 points)
+                if (timelineChart) {
+                    const now = new Date().toLocaleTimeString();
+                    timelineChart.data.labels.push(now);
+                    timelineChart.data.datasets[0].data.push(events.events?.length || 0);
+
+                    // Keep only last 30 data points
+                    if (timelineChart.data.labels.length > 30) {
+                        timelineChart.data.labels.shift();
+                        timelineChart.data.datasets[0].data.shift();
+                    }
+
+                    timelineChart.update('none'); // Disable animations
+                }
+
+                // Update distribution chart with execution time buckets
+                if (distributionChart && events.events) {
+                    const buckets = [0, 0, 0, 0, 0]; // 0-100ms, 100-500ms, 500-1000ms, 1000-5000ms, 5000ms+
+
+                    events.events.forEach(event => {
+                        const duration = event.duration_ms || 0;
+                        if (duration < 100) buckets[0]++;
+                        else if (duration < 500) buckets[1]++;
+                        else if (duration < 1000) buckets[2]++;
+                        else if (duration < 5000) buckets[3]++;
+                        else buckets[4]++;
+                    });
+
+                    distributionChart.data.datasets[0].data = buckets;
+                    distributionChart.update('none'); // Disable animations
+                }
+
+                // Update table
+                const tbody = document.getElementById('executions-table');
+                tbody.innerHTML = events.events.slice(0, 10).map(event => `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ${event.run_id || 'N/A'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${event.skill_id || 'N/A'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                ${event.event_type}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${event.duration_ms ? Math.round(event.duration_ms) + 'ms' : '-'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${new Date(event.timestamp).toLocaleString()}
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error updating monitoring:', error);
+            }
         }
 
         document.addEventListener('DOMContentLoaded', () => {
