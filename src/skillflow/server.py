@@ -358,9 +358,11 @@ class SkillFlowServer:
             if tool_name == "debug_upstream_tools":
                 """Debug tool to check upstream tool proxy status."""
                 import json
+                import traceback
 
                 debug_info = {
                     "registered_servers": [],
+                    "connection_tests": {},
                     "proxy_tools": [],
                     "errors": []
                 }
@@ -372,8 +374,39 @@ class SkillFlowServer:
                         debug_info["registered_servers"].append({
                             "id": server.server_id,
                             "name": server.name,
-                            "enabled": server.enabled
+                            "enabled": server.enabled,
+                            "transport": server.transport.value,
+                            "command": server.config.get("command", "N/A")
                         })
+
+                        # Test connection to each server
+                        if server.enabled:
+                            try:
+                                print(f"[Debug] Testing connection to {server.server_id}...")
+
+                                tools = await asyncio.wait_for(
+                                    self.mcp_clients.list_tools(server.server_id),
+                                    timeout=8.0
+                                )
+
+                                debug_info["connection_tests"][server.server_id] = {
+                                    "status": "success",
+                                    "tools_count": len(tools),
+                                    "sample_tools": [t["name"] for t in tools[:3]]
+                                }
+
+                            except asyncio.TimeoutError:
+                                debug_info["connection_tests"][server.server_id] = {
+                                    "status": "timeout",
+                                    "error": "Connection timed out after 8 seconds"
+                                }
+                            except Exception as e:
+                                debug_info["connection_tests"][server.server_id] = {
+                                    "status": "error",
+                                    "error": str(e),
+                                    "error_type": type(e).__name__,
+                                    "traceback": traceback.format_exc()
+                                }
 
                     # Try to get upstream tools
                     upstream_tools = await self._get_upstream_tools()
@@ -384,11 +417,15 @@ class SkillFlowServer:
                         })
 
                 except Exception as e:
-                    debug_info["errors"].append(str(e))
+                    debug_info["errors"].append({
+                        "error": str(e),
+                        "type": type(e).__name__,
+                        "traceback": traceback.format_exc()
+                    })
 
                 return [TextContent(
                     type="text",
-                    text=f"Debug Info:\n{json.dumps(debug_info, indent=2)}"
+                    text=f"Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
                 )]
 
             # Unknown tool name
