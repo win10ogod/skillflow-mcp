@@ -91,8 +91,10 @@ class MCPClientManager:
             env=env,
         )
 
-        # Create stdio client
-        read, write = await stdio_client(server_params)
+        # Create stdio client (stdio_client is an async context manager)
+        streams = stdio_client(server_params)
+        read, write = await streams.__aenter__()
+
         session = ClientSession(read, write)
         await session.initialize()
 
