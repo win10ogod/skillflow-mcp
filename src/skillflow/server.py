@@ -121,6 +121,27 @@ class SkillFlowServer:
         async def handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> list[TextContent]:
             """Handle all tool calls dispatched by name."""
 
+            # ========== Upstream Server Tools (Proxied) ==========
+            server_id, actual_tool_name = self._parse_upstream_tool_name(tool_name)
+            if server_id and actual_tool_name:
+                # This is a proxied upstream tool call
+                try:
+                    result = await self._execute_tool(server_id, actual_tool_name, arguments)
+
+                    # Format result
+                    import json
+                    if isinstance(result, dict):
+                        content = result.get("content", [])
+                        if isinstance(content, list):
+                            return [TextContent(type="text", text=str(item)) for item in content]
+                        else:
+                            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+                    else:
+                        return [TextContent(type="text", text=str(result))]
+
+                except Exception as e:
+                    return [TextContent(type="text", text=f"Error calling upstream tool: {str(e)}")]
+
             # ========== Recording Tools ==========
             if tool_name == "start_recording":
                 session_name = arguments.get("session_name")
@@ -374,11 +395,71 @@ class SkillFlowServer:
             except Exception as e:
                 print(f"Error registering skill {skill_meta.id}: {e}")
 
+    async def _get_upstream_tools(self) -> list[Tool]:
+        """Get all tools from upstream servers and create proxy tools.
+
+        Returns:
+            List of proxy tools with prefixed names
+        """
+        upstream_tools = []
+
+        try:
+            servers = await self.mcp_clients.list_servers()
+
+            for server_config in servers:
+                if not server_config.enabled:
+                    continue
+
+                try:
+                    # Get tools from this server
+                    tools = await self.mcp_clients.list_tools(server_config.server_id)
+
+                    # Create proxy tools with prefixed names
+                    for tool_dict in tools:
+                        proxy_tool_name = f"upstream__{server_config.server_id}__{tool_dict['name']}"
+
+                        # Add server info to description
+                        description = tool_dict.get('description', '')
+                        enhanced_description = f"[{server_config.name}] {description}"
+
+                        proxy_tool = Tool(
+                            name=proxy_tool_name,
+                            description=enhanced_description,
+                            inputSchema=tool_dict.get('inputSchema', {"type": "object", "properties": {}}),
+                        )
+                        upstream_tools.append(proxy_tool)
+
+                except Exception as e:
+                    print(f"Error listing tools from {server_config.server_id}: {e}")
+
+        except Exception as e:
+            print(f"Error getting upstream tools: {e}")
+
+        return upstream_tools
+
+    def _parse_upstream_tool_name(self, tool_name: str) -> tuple[Optional[str], Optional[str]]:
+        """Parse upstream tool name to extract server_id and actual tool name.
+
+        Args:
+            tool_name: Tool name in format "upstream__<server_id>__<tool_name>"
+
+        Returns:
+            Tuple of (server_id, actual_tool_name) or (None, None) if not an upstream tool
+        """
+        if not tool_name.startswith("upstream__"):
+            return None, None
+
+        parts = tool_name.split("__", 2)
+        if len(parts) != 3:
+            return None, None
+
+        return parts[1], parts[2]
+
     def _setup_list_tools(self):
         """Setup the list_tools handler."""
         @self.server.list_tools()
         async def list_tools() -> list[Tool]:
-            """List all available tools including skills."""
+            """List all available tools including skills and upstream server tools."""
             # Get base tools (recording, management, etc.)
             base_tools = [
                 Tool(
@@ -512,7 +593,10 @@ class SkillFlowServer:
                 for t in skill_tools_data
             ]
 
-            return base_tools + skill_tools
+            # Add upstream server tools (proxied)
+            upstream_tools = await self._get_upstream_tools()
+
+            return base_tools + skill_tools + upstream_tools
 
     def run(self):
         """Run the MCP server."""

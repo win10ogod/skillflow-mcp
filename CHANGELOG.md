@@ -1,148 +1,44 @@
 # Changelog
 
-All notable changes to SkillFlow MCP Server will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [0.1.0] - 2025-01-16
-
-### Added - MVP Release
-
-#### Core Features
-- **Recording System**: Record tool call sequences into sessions
-  - `start_recording()` and `stop_recording()` tools
-  - Session persistence in JSON format
-  - Tool call logging with timing and status
-
-- **Skill Management**: Create and manage reusable skills
-  - Create skills from recording sessions
-  - Skill versioning (automatic version increment)
-  - List, get, and delete skills
-  - Tag-based filtering and search
-  - Skills automatically registered as MCP tools
-
-- **Execution Engine**: Execute skills with DAG support
-  - Topological sorting of skill nodes
-  - Three concurrency modes:
-    - Sequential: Execute nodes in order
-    - Phased: Execute phases in parallel
-    - Full Parallel: Maximize parallelism with dependency analysis
-  - Parameter template resolution (`$inputs.*`, `@step_*.outputs.*`)
-  - Error handling strategies (fail_fast, retry, skip_dependents, continue)
-  - Execution status tracking and cancellation
-  - JSONL execution logs
-
-- **MCP Client Management**: Connect to upstream MCP servers
-  - Server registration and management
-  - stdio transport support
-  - Tool call proxying
-  - Server lifecycle management
-
-- **Storage Layer**: JSON-based persistence
-  - Atomic writes with file locking
-  - In-memory indexing for fast lookups
-  - Organized file structure (skills, sessions, runs, registry)
-
-#### MCP Tools
-- `start_recording` - Start a recording session
-- `stop_recording` - Stop active recording
-- `list_recording_sessions` - List all sessions
-- `create_skill_from_session` - Create skill from session
-- `list_skills` - List all skills with filtering
-- `get_skill` - Get skill details
-- `delete_skill` - Delete a skill
-- `get_run_status` - Query execution status
-- `cancel_run` - Cancel running skill
-- `register_upstream_server` - Register upstream MCP server
-- `list_upstream_servers` - List registered servers
-- `skill__<id>` - Dynamic tools for each skill
-
-#### Developer Experience
-- Complete Pydantic data models with type safety
-- Comprehensive async/await implementation
-- pytest test suite with async support
-- uv package management integration
-- Detailed documentation (README, Quick Start, Usage Guide)
-- Example configurations and skills
-
-#### Documentation
-- README.md - Project overview and features
-- QUICKSTART.md - 5-minute getting started guide
-- USAGE_GUIDE.md - Comprehensive usage documentation
-- PROJECT_SUMMARY.md - Project summary and architecture
-- QUICK_REFERENCE.md - Quick reference card
-
-### Technical Details
-
-#### Architecture
-- Python 3.11+ with full type hints
-- MCP Python SDK v1.21.1+
-- Pydantic v2.12+ for data validation
-- aiofiles for async file I/O
-- filelock for concurrent write safety
-
-#### File Structure
-```
-data/
-├── skills/{skill_id}/
-├── sessions/
-├── runs/{date}/
-└── registry/
-```
-
-### Known Limitations
-
-- Only stdio transport is currently implemented
-- HTTP+SSE transport not yet available
-- No skill nesting (skills calling skills)
-- No conditional execution (if/else)
-- No loop execution (for/while)
-- No web UI
+All notable changes to Skillflow-MCP will be documented in this file.
 
 ## [Unreleased]
 
-### Planned Features
+### Added - 2025-11-16
 
-#### Phase 2: Transport Layer
-- [ ] HTTP+SSE transport support
-- [ ] Streamable HTTP transport support
-- [ ] WebSocket transport support
+- **上游工具代理功能** - 重大功能更新！
+  - 自动将已注册上游服务器的工具暴露为 Skillflow 工具
+  - 工具命名格式：`upstream__<server_id>__<tool_name>`
+  - 支持录制通过代理调用的上游工具
+  - 完整的工作流程：注册 → 暴露 → 调用 → 录制 → 创建技能
 
-#### Phase 3: Advanced Execution
-- [ ] Skill nesting and composition
-- [ ] Conditional nodes (if/else/switch)
-- [ ] Loop nodes (for/while)
-- [ ] Parameter transformation expressions (JSONPath, Jinja2)
+- **新增文档**
+  - `docs/UPSTREAM_TOOLS_PROXY.md` - 上游工具代理功能完整指南
 
-#### Phase 4: Enterprise Features
-- [ ] Multi-tenancy support
-- [ ] Access control and permissions
-- [ ] Skill marketplace
-- [ ] Audit logging
+- **测试脚本**
+  - `test_upstream_proxy.py` - 验证代理功能的测试脚本
 
-#### Phase 5: User Experience
-- [ ] Web UI control panel
-- [ ] Visual DAG editor
-- [ ] Execution monitoring dashboard
-- [ ] Skill debugging tools
+### Fixed - 2025-11-16
 
----
+- **修复录制功能** - 解决了 "Total calls: 0" 的问题
+  - 之前：上游服务器的工具不可见，无法调用，因此无法录制
+  - 现在：上游工具自动暴露，可以直接调用并被正确录制
 
-## Version History
+- **修复 stdio 客户端连接问题**
+  - 正确处理 `stdio_client` 的异步上下文管理器
 
-- **v0.1.0** (2025-01-16) - Initial MVP release
+### Changed - 2025-11-16
+
+- **增强工具列表功能** - 现在包含上游服务器的代理工具
+- **增强工具调用处理** - 支持代理上游工具调用并正确录制
 
 ## Migration Guide
 
-### From Nothing to v0.1.0
+如果您之前遇到了 "录制显示 0 次调用" 的问题：
 
-This is the initial release. To start using SkillFlow:
+1. 拉取最新代码
+2. 重启 Skillflow
+3. 现在可以直接调用 `upstream__<server_id>__<tool_name>` 格式的工具
+4. 这些调用会被正确录制
 
-1. Install with `uv sync`
-2. Configure in Claude Desktop or other MCP client
-3. See QUICKSTART.md for first steps
-
----
-
-For detailed information about each release, see the corresponding git tags and release notes.
+详细信息请查看 `docs/UPSTREAM_TOOLS_PROXY.md`
