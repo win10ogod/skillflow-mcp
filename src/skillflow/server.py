@@ -355,6 +355,42 @@ class SkillFlowServer:
 
                 return [TextContent(type="text", text="\n".join(lines))]
 
+            if tool_name == "debug_upstream_tools":
+                """Debug tool to check upstream tool proxy status."""
+                import json
+
+                debug_info = {
+                    "registered_servers": [],
+                    "proxy_tools": [],
+                    "errors": []
+                }
+
+                try:
+                    # Get registered servers
+                    servers = await self.mcp_clients.list_servers()
+                    for server in servers:
+                        debug_info["registered_servers"].append({
+                            "id": server.server_id,
+                            "name": server.name,
+                            "enabled": server.enabled
+                        })
+
+                    # Try to get upstream tools
+                    upstream_tools = await self._get_upstream_tools()
+                    for tool in upstream_tools:
+                        debug_info["proxy_tools"].append({
+                            "name": tool.name,
+                            "description": tool.description[:60] + "..." if len(tool.description) > 60 else tool.description
+                        })
+
+                except Exception as e:
+                    debug_info["errors"].append(str(e))
+
+                return [TextContent(
+                    type="text",
+                    text=f"Debug Info:\n{json.dumps(debug_info, indent=2)}"
+                )]
+
             # Unknown tool name
             return [
                 TextContent(
@@ -402,6 +438,7 @@ class SkillFlowServer:
             List of proxy tools with prefixed names
         """
         upstream_tools = []
+        errors = []  # Track errors for debugging
 
         try:
             servers = await self.mcp_clients.list_servers()
@@ -413,10 +450,14 @@ class SkillFlowServer:
                 try:
                     # Try to get tools from this server with timeout
                     # Use asyncio.wait_for to prevent hanging on slow/unresponsive servers
+                    print(f"[Skillflow] Fetching tools from {server_config.server_id}...")
+
                     tools = await asyncio.wait_for(
                         self.mcp_clients.list_tools(server_config.server_id),
-                        timeout=3.0  # 3 second timeout per server
+                        timeout=10.0  # Increased to 10 seconds per server
                     )
+
+                    print(f"[Skillflow] Found {len(tools)} tools from {server_config.server_id}")
 
                     # Create proxy tools with prefixed names
                     for tool_dict in tools:
@@ -434,15 +475,23 @@ class SkillFlowServer:
                         upstream_tools.append(proxy_tool)
 
                 except asyncio.TimeoutError:
-                    # Silently skip servers that timeout - don't block initialization
-                    pass
+                    error_msg = f"Timeout connecting to {server_config.server_id}"
+                    print(f"[Skillflow] {error_msg}")
+                    errors.append(error_msg)
                 except Exception as e:
-                    # Silently skip servers with errors - don't block initialization
-                    pass
+                    error_msg = f"Error from {server_config.server_id}: {str(e)}"
+                    print(f"[Skillflow] {error_msg}")
+                    errors.append(error_msg)
 
         except Exception as e:
-            # Silently fail - don't block the entire server initialization
-            pass
+            error_msg = f"Failed to get upstream tools: {str(e)}"
+            print(f"[Skillflow] {error_msg}")
+            errors.append(error_msg)
+
+        if errors:
+            print(f"[Skillflow] Encountered {len(errors)} errors while fetching upstream tools")
+
+        print(f"[Skillflow] Total proxy tools created: {len(upstream_tools)}")
 
         return upstream_tools
 
@@ -587,6 +636,11 @@ class SkillFlowServer:
                 Tool(
                     name="list_upstream_servers",
                     description="List all registered upstream servers",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="debug_upstream_tools",
+                    description="Debug tool to check if upstream tools are being proxied correctly",
                     inputSchema={"type": "object", "properties": {}},
                 ),
             ]
