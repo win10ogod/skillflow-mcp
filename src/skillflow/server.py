@@ -519,12 +519,15 @@ class SkillFlowServer:
 
                     print(f"[Skillflow] Found {len(tools)} tools from {server_config.server_id}")
 
-                    # Create proxy tools with compact naming (max 60 chars)
+                    # Create proxy tools with compact naming
+                    # Max 47 chars to account for Fount's 13-char prefix (mcp_skillflow_)
+                    # Total: 13 + 47 = 60 chars
                     for tool_dict in tools:
                         original_tool_name = tool_dict['name']
                         proxy_tool_name = generate_proxy_tool_name(
                             server_config.server_id,
-                            original_tool_name
+                            original_tool_name,
+                            max_length=47  # Reserve space for client prefix
                         )
 
                         # Store hash mapping if using hash format

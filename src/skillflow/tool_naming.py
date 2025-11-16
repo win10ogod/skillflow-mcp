@@ -211,17 +211,27 @@ class ToolNamingStrategy:
 default_naming_strategy = ToolNamingStrategy(ToolNamingStrategy.FORMAT_COMPACT)
 
 
-def generate_proxy_tool_name(server_id: str, tool_name: str) -> str:
+def generate_proxy_tool_name(
+    server_id: str,
+    tool_name: str,
+    max_length: Optional[int] = None
+) -> str:
     """Generate proxy tool name using default strategy.
 
     Args:
         server_id: Upstream server ID
         tool_name: Original tool name
+        max_length: Maximum total length (default: 60, but consider client prefixes)
 
     Returns:
-        Proxy tool name (max 60 chars)
+        Proxy tool name
+
+    Note:
+        Some MCP clients add prefixes to tool names. For example, Fount adds
+        'mcp_<server_name>_' (13 chars for 'mcp_skillflow_'). In such cases,
+        pass max_length=47 to ensure the total doesn't exceed 60 chars.
     """
-    return default_naming_strategy.generate_proxy_tool_name(server_id, tool_name)
+    return default_naming_strategy.generate_proxy_tool_name(server_id, tool_name, max_length)
 
 
 def parse_proxy_tool_name(tool_name: str) -> tuple[Optional[str], Optional[str]]:

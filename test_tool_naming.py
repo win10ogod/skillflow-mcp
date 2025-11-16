@@ -19,14 +19,19 @@ def test_tool_naming():
 
     test_cases = [
         # (server_id, tool_name, expected_max_length)
-        ("windows-driver-input", "Move_Tool", 60),
-        ("windows-driver-input", "Input-RateLimiter-Config", 60),
-        ("windows-driver-input", "Desktop_Info", 60),
-        ("very-long-server-name-that-exceeds-limits", "Very_Long_Tool_Name", 60),
-        ("short", "tool", 60),
-        ("filesystem", "read_file", 60),
-        ("puppeteer", "navigate_to_url", 60),
+        ("windows-driver-input", "Move_Tool", 47),
+        ("windows-driver-input", "Input-RateLimiter-Config", 47),
+        ("windows-driver-input", "Desktop_Info", 47),
+        ("very-long-server-name-that-exceeds-limits", "Very_Long_Tool_Name", 47),
+        ("short", "tool", 47),
+        ("filesystem", "read_file", 47),
+        ("puppeteer", "navigate_to_url", 47),
     ]
+
+    # Add note about client prefix
+    print("NOTE: Max length set to 47 to account for Fount's 13-char prefix")
+    print("      (mcp_skillflow_) which brings total to 60 chars max.")
+    print()
 
     strategy = ToolNamingStrategy(ToolNamingStrategy.FORMAT_COMPACT)
 
