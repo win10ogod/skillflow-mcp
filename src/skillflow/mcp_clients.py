@@ -123,12 +123,22 @@ class MCPClientManager:
         context = self._client_contexts.pop(server_id, None)
 
         if context:
-            # Properly exit the context manager
+            # Properly exit the context manager to clean up stdio processes
             try:
                 await context.__aexit__(None, None, None)
-            except Exception:
-                # Ignore errors during cleanup
+            except Exception as e:
+                # Log but ignore errors during cleanup
+                print(f"[MCPClient] Error cleaning up {server_id}: {e}")
+                # Context manager should have killed the subprocess, but be defensive
                 pass
+
+        # Also try to close the session if it exists
+        if session:
+            try:
+                # MCP ClientSession might have cleanup methods
+                pass  # Currently no explicit cleanup needed
+            except Exception as e:
+                print(f"[MCPClient] Error closing session for {server_id}: {e}")
 
     async def call_tool(
         self,

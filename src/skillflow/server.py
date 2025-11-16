@@ -384,22 +384,28 @@ class SkillFlowServer:
                             try:
                                 print(f"[Debug] Testing connection to {server.server_id}...")
 
-                                tools = await asyncio.wait_for(
-                                    self.mcp_clients.list_tools(server.server_id),
-                                    timeout=30.0
-                                )
+                                try:
+                                    tools = await asyncio.wait_for(
+                                        self.mcp_clients.list_tools(server.server_id),
+                                        timeout=30.0
+                                    )
 
-                                debug_info["connection_tests"][server.server_id] = {
-                                    "status": "success",
-                                    "tools_count": len(tools),
-                                    "sample_tools": [t["name"] for t in tools[:3]]
-                                }
+                                    debug_info["connection_tests"][server.server_id] = {
+                                        "status": "success",
+                                        "tools_count": len(tools),
+                                        "sample_tools": [t["name"] for t in tools[:3]]
+                                    }
 
-                            except asyncio.TimeoutError:
-                                debug_info["connection_tests"][server.server_id] = {
-                                    "status": "timeout",
-                                    "error": "Connection timed out after 30 seconds"
-                                }
+                                except asyncio.TimeoutError:
+                                    # Clean up partial connection to avoid resource leak
+                                    print(f"[Debug] Timeout on {server.server_id}, cleaning up...")
+                                    await self.mcp_clients.disconnect_server(server.server_id)
+
+                                    debug_info["connection_tests"][server.server_id] = {
+                                        "status": "timeout",
+                                        "error": "Connection timed out after 30 seconds (cleaned up)"
+                                    }
+
                             except Exception as e:
                                 debug_info["connection_tests"][server.server_id] = {
                                     "status": "error",
@@ -489,10 +495,21 @@ class SkillFlowServer:
                     # Use asyncio.wait_for to prevent hanging on slow/unresponsive servers
                     print(f"[Skillflow] Fetching tools from {server_config.server_id}...")
 
-                    tools = await asyncio.wait_for(
-                        self.mcp_clients.list_tools(server_config.server_id),
-                        timeout=30.0  # Increased to 30 seconds for slow Windows servers
-                    )
+                    try:
+                        tools = await asyncio.wait_for(
+                            self.mcp_clients.list_tools(server_config.server_id),
+                            timeout=30.0  # Increased to 30 seconds for slow Windows servers
+                        )
+                    except asyncio.TimeoutError:
+                        # CRITICAL: Clean up partial connection on timeout to avoid resource leak
+                        error_msg = f"Timeout connecting to {server_config.server_id}"
+                        print(f"[Skillflow] {error_msg} - cleaning up partial connection...")
+
+                        # Disconnect to clean up any partial connections and kill orphaned processes
+                        await self.mcp_clients.disconnect_server(server_config.server_id)
+
+                        errors.append(error_msg)
+                        continue  # Skip to next server
 
                     print(f"[Skillflow] Found {len(tools)} tools from {server_config.server_id}")
 
@@ -511,10 +528,6 @@ class SkillFlowServer:
                         )
                         upstream_tools.append(proxy_tool)
 
-                except asyncio.TimeoutError:
-                    error_msg = f"Timeout connecting to {server_config.server_id}"
-                    print(f"[Skillflow] {error_msg}")
-                    errors.append(error_msg)
                 except Exception as e:
                     error_msg = f"Error from {server_config.server_id}: {str(e)}"
                     print(f"[Skillflow] {error_msg}")
