@@ -256,10 +256,19 @@ class SkillFlowServer:
 
                 await self._register_skill_tools()
 
+                # Note: MCP servers cannot proactively notify clients of tool list changes
+                # Some clients (like Fount) cache the tool list and need manual refresh
                 return [
                     TextContent(
                         type="text",
-                        text=f"Skill created: {skill.id} (v{skill.version})",
+                        text=(
+                            f"✅ Skill created: {skill.id} (v{skill.version})\n"
+                            f"Tool name: skill__{skill.id}\n\n"
+                            f"⚠️ Note: If the tool doesn't appear in your client, try:\n"
+                            f"  1. Refresh the client's tool list\n"
+                            f"  2. Or call it directly: skill__{skill.id}\n"
+                            f"  3. Or restart the client if refresh doesn't work"
+                        ),
                     )
                 ]
 
@@ -434,6 +443,13 @@ class SkillFlowServer:
                                     }
 
                             except Exception as e:
+                                # CRITICAL: Clean up connection on ANY error to prevent process leak
+                                print(f"[Debug] Error on {server.server_id}, cleaning up...")
+                                try:
+                                    await self.mcp_clients.disconnect_server(server.server_id)
+                                except:
+                                    pass  # Ignore cleanup errors
+
                                 debug_info["connection_tests"][server.server_id] = {
                                     "status": "error",
                                     "error": str(e),
