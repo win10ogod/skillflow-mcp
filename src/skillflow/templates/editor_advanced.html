@@ -300,7 +300,9 @@
                         selector: 'node[type="skill_call"]',
                         style: {
                             'background-color': '#F59E0B',
-                            'border-color': '#D97706'
+                            'border-color': '#D97706',
+                            'border-width': '4px',
+                            'border-style': 'double'
                         }
                     },
                     {
@@ -447,17 +449,33 @@
             } else if (data.type === 'skill_call') {
                 html += `
                     <div class="property-section border-yellow-500">
-                        <h4 class="text-sm font-semibold text-gray-700 mb-2">Nested Skill</h4>
+                        <h4 class="text-sm font-semibold text-gray-700 mb-2">🔗 Nested Skill</h4>
                         <div class="space-y-2">
                             <div>
                                 <label class="block text-sm font-medium text-gray-600">Skill ID</label>
-                                <select id="prop-skill-id" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                                <select id="prop-skill-id" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                                        onchange="updateNestedSkillPreview()">
                                     <option value="">Select skill...</option>
                                 </select>
                             </div>
-                            <button onclick="loadNestedSkills()" class="w-full px-3 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
-                                Refresh Skills
-                            </button>
+                            <div class="flex gap-2">
+                                <button onclick="loadNestedSkills()" class="flex-1 px-3 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
+                                    🔄 Refresh Skills
+                                </button>
+                                <button onclick="previewNestedSkill()" class="flex-1 px-3 py-2 bg-green-500 text-white text-sm rounded hover:bg-green-600">
+                                    👁️ Preview
+                                </button>
+                            </div>
+                            <div id="nested-skill-preview" class="hidden mt-2 p-3 bg-gray-50 border border-gray-300 rounded text-xs">
+                                <p class="font-semibold text-gray-700 mb-1">Skill Structure:</p>
+                                <div id="nested-skill-details" class="text-gray-600"></div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Arguments Mapping (JSON)</label>
+                                <textarea id="prop-skill-args" rows="3"
+                                          class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
+                                          placeholder='{"input": "$inputs.value"}'>${JSON.stringify(data.args || {}, null, 2)}</textarea>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -596,6 +614,81 @@
                 }
             } catch (error) {
                 console.error('Error loading skills:', error);
+            }
+        }
+
+        // Update nested skill preview when selection changes
+        async function updateNestedSkillPreview() {
+            const select = document.getElementById('prop-skill-id');
+            const preview = document.getElementById('nested-skill-preview');
+            const details = document.getElementById('nested-skill-details');
+
+            if (!select || !select.value) {
+                if (preview) preview.classList.add('hidden');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/skills/${select.value}`);
+                const skill = await response.json();
+
+                if (preview && details) {
+                    const nodeCount = skill.graph?.nodes?.length || 0;
+                    const edgeCount = skill.graph?.edges?.length || 0;
+
+                    details.innerHTML = `
+                        <div class="space-y-1">
+                            <p><span class="font-semibold">Name:</span> ${skill.name}</p>
+                            <p><span class="font-semibold">Description:</span> ${skill.description || 'N/A'}</p>
+                            <p><span class="font-semibold">Nodes:</span> ${nodeCount}</p>
+                            <p><span class="font-semibold">Edges:</span> ${edgeCount}</p>
+                            <p><span class="font-semibold">Concurrency:</span> ${skill.concurrency_mode || 'sequential'}</p>
+                        </div>
+                    `;
+                    preview.classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error('Error fetching skill details:', error);
+                if (preview) preview.classList.add('hidden');
+            }
+        }
+
+        // Preview nested skill in a modal or alert
+        async function previewNestedSkill() {
+            const select = document.getElementById('prop-skill-id');
+            if (!select || !select.value) {
+                alert('Please select a skill first');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/skills/${select.value}`);
+                const skill = await response.json();
+
+                // Create a simple text visualization of the skill structure
+                let visualization = `Skill: ${skill.name}\n\n`;
+                visualization += `Description: ${skill.description || 'N/A'}\n\n`;
+                visualization += `Nodes (${skill.graph?.nodes?.length || 0}):\n`;
+
+                if (skill.graph?.nodes) {
+                    skill.graph.nodes.forEach((node, i) => {
+                        visualization += `  ${i + 1}. [${node.kind}] ${node.id}`;
+                        if (node.tool_name) visualization += ` - Tool: ${node.tool_name}`;
+                        if (node.skill_id) visualization += ` - Nested: ${node.skill_id}`;
+                        visualization += '\n';
+                    });
+                }
+
+                visualization += `\nEdges (${skill.graph?.edges?.length || 0}):\n`;
+                if (skill.graph?.edges) {
+                    skill.graph.edges.forEach((edge, i) => {
+                        visualization += `  ${i + 1}. ${edge.from} → ${edge.to}\n`;
+                    });
+                }
+
+                alert(visualization);
+            } catch (error) {
+                alert(`Error loading skill: ${error.message}`);
             }
         }
 
