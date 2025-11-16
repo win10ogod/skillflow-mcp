@@ -72,6 +72,11 @@ All notable changes to Skillflow-MCP will be documented in this file.
     - 对文本参数进行字符级分析
     - 显示技能的 metadata（包含 source_session_id）
     - 帮助识别文本是否在技能创建阶段损坏
+  - `debug_skill_execution` - 追踪技能执行过程并诊断重播时的参数损坏
+    - 显示每个节点执行时的 args_resolved（执行引擎解析后的参数）
+    - 对文本参数进行字符级分析（字符列表、字节表示）
+    - 显示每个节点的执行状态和结果
+    - **关键用途**：对比 args_template（技能定义）和 args_resolved（实际执行），定位参数在哪个阶段被损坏
 
 - **新增文件**：
   - `src/skillflow/tool_naming.py` - 智能工具命名策略

@@ -594,6 +594,63 @@ class SkillFlowServer:
                     text=f"Skill Definition Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
                 )]
 
+            if tool_name == "debug_skill_execution":
+                """Debug tool to trace skill execution and diagnose parameter corruption."""
+                import json
+
+                run_id = arguments["run_id"]
+
+                debug_info = {
+                    "run_id": run_id,
+                    "found": False,
+                    "executions": [],
+                }
+
+                try:
+                    # Load execution log
+                    executions = await self.storage.load_run_log(run_id)
+
+                    if executions:
+                        debug_info["found"] = True
+                        debug_info["total_executions"] = len(executions)
+
+                        # Inspect each node execution
+                        for execution in executions:
+                            exec_detail = {
+                                "node_id": execution.node_id,
+                                "server": execution.server,
+                                "tool": execution.tool,
+                                "status": execution.status,
+                                "started_at": execution.started_at.isoformat() if execution.started_at else None,
+                                "ended_at": execution.ended_at.isoformat() if execution.ended_at else None,
+                                "args_resolved": execution.args_resolved,
+                                "args_resolved_json": json.dumps(execution.args_resolved, ensure_ascii=False),
+                                "args_resolved_repr": repr(execution.args_resolved),
+                                "output": execution.output,
+                                "error": execution.error,
+                            }
+
+                            # For text arguments in resolved args, show detailed character analysis
+                            for key, value in execution.args_resolved.items():
+                                if isinstance(value, str) and len(value) > 0:
+                                    exec_detail[f"resolved_{key}_length"] = len(value)
+                                    exec_detail[f"resolved_{key}_chars"] = [c for c in value]
+                                    exec_detail[f"resolved_{key}_bytes"] = value.encode('utf-8').hex()
+
+                            debug_info["executions"].append(exec_detail)
+                    else:
+                        debug_info["message"] = "No execution log found for this run_id"
+
+                except Exception as e:
+                    debug_info["error"] = str(e)
+                    import traceback
+                    debug_info["traceback"] = traceback.format_exc()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Skill Execution Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
+                )]
+
             if tool_name == "debug_recording_session":
                 """Debug tool to inspect recording session details and diagnose text scrambling issues."""
                 import json
@@ -942,6 +999,20 @@ class SkillFlowServer:
                             },
                         },
                         "required": ["skill_id"],
+                    },
+                ),
+                Tool(
+                    name="debug_skill_execution",
+                    description="Debug tool to trace skill execution and diagnose parameter corruption during replay",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "run_id": {
+                                "type": "string",
+                                "description": "ID of the skill execution run to inspect",
+                            },
+                        },
+                        "required": ["run_id"],
                     },
                 ),
                 Tool(
