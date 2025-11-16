@@ -53,6 +53,23 @@ All notable changes to Skillflow-MCP will be documented in this file.
     - 使用 try-except 确保清理不会失败
     - 防止孤立进程累积
 
+- **修复服务器关闭时上游进程未终止的问题** 🔧
+  - 🎯 **问题**：Skillflow 服务器关闭后，上游 MCP 服务器进程仍在后台运行
+  - 🎯 **根本原因**：服务器退出时没有调用 cleanup 清理上游连接
+  - ✅ **解决方案**：
+    - 添加 `cleanup()` 方法调用 `mcp_clients.close_all()`
+    - 在 `main()` 的 `finally` 块中确保 cleanup 被调用
+    - 使用 `atexit` 注册清理函数，处理正常退出
+    - 改进信号处理器（SIGINT/SIGTERM）触发 `KeyboardInterrupt`
+    - 跨平台兼容：Windows 和 Unix 都能正确清理
+  - 📦 **清理流程**：
+    1. 服务器收到退出信号（Ctrl+C 或 SIGTERM）
+    2. 触发 `KeyboardInterrupt` 异常
+    3. `finally` 块调用 `cleanup()`
+    4. `close_all()` 断开所有上游客户端
+    5. 每个客户端的 `stop()` 终止子进程（先 terminate，5 秒后 kill）
+    6. 确保所有资源被正确释放
+
 - **改进技能元数据管理**：
   - 技能创建时自动保存 `source_session_id` 到 metadata
   - 允许追溯技能来源的录制会话

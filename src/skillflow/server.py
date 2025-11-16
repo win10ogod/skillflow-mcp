@@ -1047,21 +1047,75 @@ class SkillFlowServer:
 
             return base_tools + skill_tools + upstream_tools
 
+    async def cleanup(self):
+        """Clean up resources when server shuts down."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("Cleaning up SkillFlow server resources...")
+
+        # Close all upstream client connections
+        try:
+            await self.mcp_clients.close_all()
+            logger.info("All upstream clients closed")
+        except Exception as e:
+            logger.error(f"Error closing upstream clients: {e}")
+
     def run(self):
         """Run the MCP server."""
         import sys
+        import signal
+        import atexit
         from mcp.server.stdio import stdio_server
 
-        async def main():
-            await self.initialize()
-            async with stdio_server() as (read_stream, write_stream):
-                await self.server.run(
-                    read_stream,
-                    write_stream,
-                    self.server.create_initialization_options(),
-                )
+        # Register cleanup on normal exit
+        def sync_cleanup():
+            """Synchronous cleanup wrapper for atexit."""
+            try:
+                # Run cleanup in new event loop if needed
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self.cleanup())
+                loop.close()
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error during cleanup: {e}")
 
-        asyncio.run(main())
+        atexit.register(sync_cleanup)
+
+        async def main():
+            try:
+                await self.initialize()
+                async with stdio_server() as (read_stream, write_stream):
+                    await self.server.run(
+                        read_stream,
+                        write_stream,
+                        self.server.create_initialization_options(),
+                    )
+            finally:
+                # Ensure cleanup happens even if server crashes
+                await self.cleanup()
+
+        # Handle Ctrl+C and termination signals (works on Unix and Windows)
+        def signal_handler(sig, frame):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Received signal {sig}, shutting down gracefully...")
+            # Don't call sys.exit here - let the finally block in main() handle cleanup
+            raise KeyboardInterrupt()
+
+        signal.signal(signal.SIGINT, signal_handler)
+        # SIGTERM only available on Unix
+        if hasattr(signal, 'SIGTERM'):
+            signal.signal(signal.SIGTERM, signal_handler)
+
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("Server stopped by user")
 
 
 def main():
