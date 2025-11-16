@@ -87,18 +87,64 @@ class MCPClientManager:
             env=env,
         )
 
-        # Create stdio client (stdio_client is an async context manager)
-        # We need to enter the context and keep it alive
-        context = stdio_client(server_params)
-        read, write = await context.__aenter__()
+        context = None
+        try:
+            # Create stdio client (stdio_client is an async context manager)
+            # We need to enter the context and keep it alive
+            context = stdio_client(server_params)
 
-        # Store the context manager so we can properly exit it later
-        self._client_contexts[config.server_id] = context
+            # Add timeout for subprocess start (10 seconds should be enough)
+            print(f"[MCPClient] Starting subprocess for {config.server_id}...")
+            try:
+                read, write = await asyncio.wait_for(
+                    context.__aenter__(),
+                    timeout=10.0
+                )
+                print(f"[MCPClient] Subprocess started for {config.server_id}")
+            except asyncio.TimeoutError:
+                print(f"[MCPClient] Timeout starting subprocess for {config.server_id}")
+                # Try to clean up the context
+                try:
+                    await context.__aexit__(None, None, None)
+                except:
+                    pass
+                raise TimeoutError(f"Failed to start subprocess for {config.server_id} within 10 seconds")
 
-        session = ClientSession(read, write)
-        await session.initialize()
+            # Store the context manager so we can properly exit it later
+            self._client_contexts[config.server_id] = context
 
-        return session
+            # Create session
+            session = ClientSession(read, write)
+
+            # Add timeout for MCP handshake (30 seconds to account for slow startup)
+            print(f"[MCPClient] Performing MCP handshake for {config.server_id}...")
+            try:
+                await asyncio.wait_for(
+                    session.initialize(),
+                    timeout=30.0
+                )
+                print(f"[MCPClient] MCP handshake complete for {config.server_id}")
+            except asyncio.TimeoutError:
+                print(f"[MCPClient] Timeout during MCP handshake for {config.server_id}")
+                # Clean up the context since handshake failed
+                self._client_contexts.pop(config.server_id, None)
+                try:
+                    await context.__aexit__(None, None, None)
+                except:
+                    pass
+                raise TimeoutError(f"MCP handshake timeout for {config.server_id} after 30 seconds")
+
+            return session
+
+        except Exception as e:
+            # If anything fails, clean up the context
+            if context and config.server_id in self._client_contexts:
+                self._client_contexts.pop(config.server_id, None)
+                try:
+                    await context.__aexit__(None, None, None)
+                except:
+                    pass
+            raise
 
     async def _connect_http_sse(self, config: ServerConfig) -> ClientSession:
         """Connect to an HTTP+SSE based MCP server.
