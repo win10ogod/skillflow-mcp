@@ -1,6 +1,6 @@
 [project]
 name = "skillflow-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "MCP server for recording and replaying tool chains as skills with advanced features"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -44,6 +44,7 @@ full = [
 
 [project.scripts]
 skillflow = "skillflow.server:main"
+skillflow-web = "skillflow.web_ui:main"
 
 [build-system]
 requires = ["hatchling"]

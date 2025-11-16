@@ -2,6 +2,115 @@
 
 All notable changes to Skillflow-MCP will be documented in this file.
 
+## [0.3.0] - 2025-11-16
+
+### Added - Phase 4: Audit & Monitoring 📊
+
+- **Audit Logging System** 📝
+  - Comprehensive event tracking for all operations
+  - Event types: skill operations, tool calls, server events
+  - Severity levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  - Time-series storage organized by date (YYYY/MM/DD)
+  - Queryable audit trail with filtering support
+  - Statistics and analytics
+  - Module: `audit.py`
+  - Storage: `data/audit/YYYY/MM/DD/*.json`
+
+- **Advanced Metrics Collection** 📈
+  - Real-time performance monitoring
+  - Execution time percentiles (P50, P95, P99)
+  - Throughput tracking (executions per minute)
+  - Error rate calculation
+  - Memory usage monitoring (requires psutil)
+  - Concurrent execution tracking
+  - Prometheus export format
+  - Module: `metrics.py`
+  - API endpoint: `/api/metrics/prometheus`
+
+- **Server Integration** 🔌
+  - Integrated audit logging in SkillFlowServer
+  - Integrated metrics collection in SkillFlowServer
+  - Automatic event logging for all operations
+  - Metric tracking for skill executions and tool calls
+  - Server start/stop events
+
+### Added - Phase 5: Web UI & User Experience 🎨
+
+- **FastAPI Web Server** 🌐
+  - Modern web server with REST API
+  - Real-time WebSocket support
+  - Endpoints for skills, metrics, audit logs
+  - Module: `web_server.py`
+  - Default port: 8080
+
+- **Dashboard** 📊
+  - Real-time metrics cards
+  - Performance charts (Chart.js)
+  - Recent events stream
+  - WebSocket live updates
+  - Template: `templates/index.html`
+
+- **Skills Management** 🛠️
+  - Skills grid with search and filter
+  - View, execute, delete skills
+  - Skill detail modal
+  - Direct execution with parameter input
+  - Template: `templates/skills.html`
+
+- **Visual DAG Editor** 🎯
+  - Interactive graph editor (Cytoscape.js)
+  - Drag-and-drop node creation
+  - Visual connection builder
+  - Auto-layout with Dagre algorithm
+  - Node property editing
+  - Zoom and pan controls
+  - Template: `templates/editor.html`
+
+- **Execution Monitoring** 📡
+  - Real-time execution tracking
+  - Live metrics dashboard
+  - Performance charts
+  - Active/recent executions table
+  - Auto-refresh every 3 seconds
+  - Template: `templates/monitoring.html`
+
+- **Debugging Tools** 🔍
+  - Skill definition inspector
+  - Execution graph visualizer
+  - Dry run simulation
+  - Test input/output inspector
+  - Execution trace viewer
+  - Template: `templates/debug.html`
+
+- **Interactive Skill Builder** 🏗️
+  - 4-step wizard interface
+  - Visual node management
+  - Connection builder
+  - JSON preview
+  - One-click skill creation
+  - Template: `templates/builder.html`
+
+- **Standalone Web UI Launcher** 🚀
+  - Independent web server mode
+  - CLI command: `skillflow-web`
+  - Arguments: --data-dir, --host, --port
+  - Read-only mode for browsing without MCP
+  - Module: `web_ui.py`
+
+### Changed
+
+- Updated `server.py` to integrate audit and metrics
+- Added audit logging to all skill operations
+- Added metrics tracking to all executions
+- Server now logs all events automatically
+
+### Dependencies
+
+- Added `fastapi>=0.109.0` (web extra)
+- Added `uvicorn[standard]>=0.27.0` (web extra)
+- Added `psutil>=5.9.0` (web extra)
+- New install option: `uv sync --extra web`
+
 ## [0.2.0] - 2025-11-16
 
 ### Added - Phase 2: Transport Layer Extensions 🌐

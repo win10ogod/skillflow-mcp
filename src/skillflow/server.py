@@ -9,8 +9,10 @@ from typing import Any, Optional
 from mcp.server import Server
 from mcp.types import Tool, TextContent, ImageContent, AudioContent, EmbeddedResource
 
+from .audit import AuditLogger, AuditEventType, AuditEventSeverity
 from .engine import ExecutionEngine
 from .mcp_clients import MCPClientManager
+from .metrics import MetricsCollector, MetricType
 from .recording import RecordingManager
 from .schemas import (
     ExposeParamSpec,
@@ -41,6 +43,10 @@ class SkillFlowServer:
         self.recording_manager = RecordingManager(self.storage)
         self.mcp_clients = MCPClientManager(self.storage)
 
+        # Phase 4: Initialize audit logger and metrics collector
+        self.audit = AuditLogger(self.storage)
+        self.metrics = MetricsCollector(self.storage)
+
         # Initialize execution engine with tool executor and skill manager for nesting support
         self.engine = ExecutionEngine(
             storage=self.storage,
@@ -66,6 +72,16 @@ class SkillFlowServer:
         await self.storage.initialize()
         await self.mcp_clients.initialize()
 
+        # Start metrics collection
+        await self.metrics.start()
+
+        # Log server start event
+        self.audit.log_event(
+            AuditEventType.SERVER_STARTED,
+            "SkillFlow MCP server started",
+            severity=AuditEventSeverity.INFO
+        )
+
         # Register dynamic skill tools
         await self._register_skill_tools()
 
@@ -89,9 +105,28 @@ class SkillFlowServer:
         if self.active_recording_session:
             start_time = datetime.utcnow()
 
+        # Track timing for metrics
+        import time
+        tool_start = time.time()
+
         try:
             # Execute via MCP client
             result = await self.mcp_clients.call_tool(server_id, tool_name, args)
+
+            # Calculate duration
+            duration_ms = (time.time() - tool_start) * 1000
+
+            # Record metrics
+            self.metrics.tool_call_completed(tool_name, duration_ms)
+
+            # Log audit event
+            self.audit.log_event(
+                AuditEventType.TOOL_CALL_COMPLETED,
+                f"Tool {tool_name} executed successfully",
+                severity=AuditEventSeverity.INFO,
+                tool_name=tool_name,
+                duration_ms=duration_ms
+            )
 
             # Record success
             if self.active_recording_session:
@@ -109,6 +144,20 @@ class SkillFlowServer:
             return result
 
         except Exception as e:
+            # Calculate duration
+            duration_ms = (time.time() - tool_start) * 1000
+
+            # Log audit event for failure
+            self.audit.log_event(
+                AuditEventType.TOOL_CALL_FAILED,
+                f"Tool {tool_name} execution failed: {str(e)}",
+                severity=AuditEventSeverity.ERROR,
+                tool_name=tool_name,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                duration_ms=duration_ms
+            )
+
             # Record error
             if self.active_recording_session:
                 duration = (datetime.utcnow() - start_time).total_seconds() * 1000
@@ -135,10 +184,37 @@ class SkillFlowServer:
                 # Extract skill ID from tool name
                 skill_id = tool_name[7:]  # Remove "skill__" prefix
 
+                # Track execution start
+                import time
+                exec_start = time.time()
+                self.metrics.execution_started()
+
+                # Log execution start
+                self.audit.log_event(
+                    AuditEventType.SKILL_EXECUTED,
+                    f"Skill {skill_id} execution started",
+                    severity=AuditEventSeverity.INFO,
+                    skill_id=skill_id
+                )
+
                 try:
                     # Load and execute the skill
                     skill = await self.skill_manager.get_skill(skill_id)
                     result = await self.engine.run_skill(skill, arguments)
+
+                    # Track execution completion
+                    duration_ms = (time.time() - exec_start) * 1000
+                    self.metrics.execution_completed(duration_ms, success=True)
+
+                    # Log completion
+                    self.audit.log_event(
+                        AuditEventType.SKILL_EXECUTION_COMPLETED,
+                        f"Skill {skill_id} executed successfully",
+                        severity=AuditEventSeverity.INFO,
+                        skill_id=skill_id,
+                        run_id=result.run_id,
+                        duration_ms=duration_ms
+                    )
 
                     import json
                     return [TextContent(
@@ -146,6 +222,21 @@ class SkillFlowServer:
                         text=json.dumps(result.model_dump(mode="json"), indent=2),
                     )]
                 except Exception as e:
+                    # Track execution failure
+                    duration_ms = (time.time() - exec_start) * 1000
+                    self.metrics.execution_completed(duration_ms, success=False)
+
+                    # Log failure
+                    self.audit.log_event(
+                        AuditEventType.SKILL_EXECUTION_FAILED,
+                        f"Skill {skill_id} execution failed: {str(e)}",
+                        severity=AuditEventSeverity.ERROR,
+                        skill_id=skill_id,
+                        error_type=type(e).__name__,
+                        error_message=str(e),
+                        duration_ms=duration_ms
+                    )
+
                     return [TextContent(
                         type="text",
                         text=f"Error executing skill '{skill_id}': {str(e)}",
