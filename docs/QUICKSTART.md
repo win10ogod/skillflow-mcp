@@ -1,35 +1,35 @@
-# SkillFlow 快速入門
+# SkillFlow Quick Start
 
-5 分鐘內開始使用 SkillFlow！
+Get started with SkillFlow in 5 minutes!
 
-## 前置需求
+## Prerequisites
 
 - Python 3.11+
-- [uv](https://github.com/astral-sh/uv) 包管理器
-- MCP 客戶端（如 Claude Desktop）
+- [uv](https://github.com/astral-sh/uv) package manager
+- MCP client (e.g., Claude Desktop)
 
-## 安裝
+## Installation
 
 ```bash
-# 1. 克隆或下載 SkillFlow
+# 1. Clone or download SkillFlow
 git clone <repository-url>
 cd skillflow-mcp
 
-# 2. 安裝依賴
+# 2. Install dependencies
 uv sync
 ```
 
-## 配置
+## Configuration
 
-### 在 Claude Desktop 中配置
+### Configure in Claude Desktop
 
-編輯配置文件（位置因作業系統而異）：
+Edit the configuration file (location varies by operating system):
 
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-添加 SkillFlow server：
+Add the SkillFlow server:
 
 ```json
 {
@@ -43,35 +43,35 @@ uv sync
 }
 ```
 
-**重要**：將 `cwd` 替換為 skillflow-mcp 的實際絕對路徑。
+**Important**: Replace `cwd` with the actual absolute path to skillflow-mcp.
 
-## 第一個技能：Hello World
+## Your First Skill: Hello World
 
-### 步驟 1：啟動 Claude Desktop
+### Step 1: Launch Claude Desktop
 
-重啟 Claude Desktop 以載入 SkillFlow。
+Restart Claude Desktop to load SkillFlow.
 
-### 步驟 2：驗證連接
+### Step 2: Verify Connection
 
-在 Claude 對話中輸入：
+In Claude's chat, type:
 
 ```
-請使用 list_skills 工具列出所有技能
+Please use the list_skills tool to list all skills
 ```
 
-應該返回空列表（因為還沒有技能）。
+Should return an empty list (since you don't have any skills yet).
 
-### 步驟 3：手動創建一個簡單技能
+### Step 3: Manually Create a Simple Skill
 
-由於我們還沒有上游 MCP server，我們可以手動創建一個示例技能文件：
+Since we don't have upstream MCP servers yet, we can manually create an example skill file:
 
 ```bash
-# 複製示例技能到 data 目錄
+# Copy example skill to data directory
 mkdir -p data/skills/hello_world
 cp examples/example_skill.json data/skills/hello_world/v0001.json
 ```
 
-修改示例以創建一個簡單的 "hello world" 技能：
+Modify the example to create a simple "hello world" skill:
 
 ```json
 {
@@ -118,7 +118,7 @@ cp examples/example_skill.json data/skills/hello_world/v0001.json
 }
 ```
 
-創建對應的 meta.json：
+Create corresponding meta.json:
 
 ```json
 {
@@ -136,31 +136,31 @@ cp examples/example_skill.json data/skills/hello_world/v0001.json
 }
 ```
 
-### 步驟 4：重啟 Claude Desktop
+### Step 4: Restart Claude Desktop
 
-重啟以載入新技能。
+Restart to load the new skill.
 
-### 步驟 5：列出技能
+### Step 5: List Skills
 
 ```
-請列出所有技能
+Please list all skills
 ```
 
-您應該看到 `hello_world` 技能。
+You should see the `hello_world` skill.
 
-## 真實場景：使用 MCP Server
+## Real Scenario: Using MCP Servers
 
-要創建有用的技能，您需要上游 MCP server。以下是常見的示例：
+To create useful skills, you need upstream MCP servers. Here's a common example:
 
-### 使用文件系統 MCP Server
+### Using the Filesystem MCP Server
 
-1. **安裝 filesystem MCP server**：
+1. **Install filesystem MCP server**:
 
 ```bash
 npm install -g @modelcontextprotocol/server-filesystem
 ```
 
-2. **在 Claude Desktop 中配置**：
+2. **Configure in Claude Desktop**:
 
 ```json
 {
@@ -178,10 +178,10 @@ npm install -g @modelcontextprotocol/server-filesystem
 }
 ```
 
-3. **在 SkillFlow 中註冊**：
+3. **Register in SkillFlow**:
 
 ```
-請幫我註冊一個上游 MCP server：
+Please help me register an upstream MCP server:
 - server_id: filesystem
 - name: File System Tools
 - transport: stdio
@@ -190,76 +190,76 @@ npm install -g @modelcontextprotocol/server-filesystem
   - args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/myuser/Documents"]
 ```
 
-4. **開始錄製**：
+4. **Start Recording**:
 
 ```
-請開始錄製，session 名稱為 "file_backup"
+Please start recording, session name "file_backup"
 ```
 
-5. **執行操作**：
+5. **Execute Operations**:
 
 ```
-請使用 filesystem server 執行以下操作：
-1. 列出 /Users/myuser/Documents 目錄下的所有 .txt 檔案
-2. 讀取第一個檔案的內容
-3. 將內容複製到 backup 目錄
+Please use the filesystem server to execute the following operations:
+1. List all .txt files in /Users/myuser/Documents directory
+2. Read the content of the first file
+3. Copy the content to the backup directory
 ```
 
-6. **停止錄製並創建技能**：
+6. **Stop Recording and Create Skill**:
 
 ```
-請停止錄製
+Please stop recording
 
-然後從剛才的 session 創建技能：
+Then create a skill from the last session:
 - skill_id: backup_first_txt_file
-- name: 備份第一個文字檔
-- description: 找到第一個 .txt 檔並備份
+- name: Backup First Text File
+- description: Find the first .txt file and back it up
 - tags: ["filesystem", "backup"]
 ```
 
-7. **使用技能**：
+7. **Use the Skill**:
 
 ```
-請執行 skill__backup_first_txt_file 技能
+Please execute the skill__backup_first_txt_file skill
 ```
 
-## 下一步
+## Next Steps
 
-- 閱讀 [完整使用指南](USAGE_GUIDE.md)
-- 探索 [示例技能](../examples/)
-- 了解 [進階功能](USAGE_GUIDE.md#進階功能)
+- Read the [Complete Usage Guide](USAGE_GUIDE.md)
+- Explore [Example Skills](../examples/)
+- Learn about [Advanced Features](USAGE_GUIDE.md#advanced-features)
 
-## 常見問題
+## FAQ
 
-### Q: SkillFlow 無法連接？
+### Q: SkillFlow can't connect?
 
-**A**: 檢查：
-1. `cwd` 路徑是否正確（必須是絕對路徑）
-2. 是否已運行 `uv sync`
-3. Claude Desktop 日誌中是否有錯誤
+**A**: Check:
+1. Is the `cwd` path correct (must be absolute path)?
+2. Have you run `uv sync`?
+3. Are there any errors in Claude Desktop logs?
 
-### Q: 如何查看 Claude Desktop 日誌？
+### Q: How to view Claude Desktop logs?
 
 **A**:
 - **macOS**: `~/Library/Logs/Claude/mcp*.log`
 - **Windows**: `%APPDATA%\Claude\logs\mcp*.log`
 
-### Q: 技能無法執行？
+### Q: Skill won't execute?
 
-**A**: 確保：
-1. 上游 MCP server 已正確註冊
-2. 上游 server 正在運行
-3. 工具名稱和參數正確
+**A**: Make sure:
+1. Upstream MCP server is correctly registered
+2. Upstream server is running
+3. Tool names and parameters are correct
 
-### Q: 如何刪除技能？
+### Q: How to delete a skill?
 
 **A**:
 ```
-請刪除技能 hello_world
+Please delete the skill hello_world
 ```
 
-或手動刪除 `data/skills/hello_world` 目錄。
+Or manually delete the `data/skills/hello_world` directory.
 
 ---
 
-**開始創建您的第一個自動化技能！** 🚀
+**Start creating your first automation skill!** 🚀
