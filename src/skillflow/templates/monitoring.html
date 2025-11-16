@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkillFlow MCP - Execution Monitoring</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body class="bg-gray-100">
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <h1 class="text-2xl font-bold text-blue-600">SkillFlow MCP</h1>
+                    </div>
+                    <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                        <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Dashboard</a>
+                        <a href="/skills" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Skills</a>
+                        <a href="/editor" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">DAG Editor</a>
+                        <a href="/monitoring" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Monitoring</a>
+                        <a href="/debug" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Debug</a>
+                        <a href="/builder" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Skill Builder</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div class="px-4 py-6 sm:px-0">
+            <h2 class="text-2xl font-bold mb-6">Real-time Execution Monitoring</h2>
+
+            <!-- Live Metrics -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold mb-2">Active Executions</h3>
+                    <p id="live-active" class="text-4xl font-bold text-blue-600">0</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold mb-2">Avg Exec Time</h3>
+                    <p id="live-avg-time" class="text-4xl font-bold text-green-600">0ms</p>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold mb-2">Success Rate</h3>
+                    <p id="live-success-rate" class="text-4xl font-bold text-purple-600">100%</p>
+                </div>
+            </div>
+
+            <!-- Performance Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="bg-white shadow rounded-lg p-6">
+                    <h3 class="text-lg font-semibold mb-4">Execution Timeline</h3>
+                    <canvas id="execution-timeline-chart" height="200"></canvas>
+                </div>
+                <div class="bg-white shadow rounded-lg p-6">
+                    <h3 class="text-lg font-semibold mb-4">Performance Distribution</h3>
+                    <canvas id="performance-dist-chart" height="200"></canvas>
+                </div>
+            </div>
+
+            <!-- Active Executions Table -->
+            <div class="bg-white shadow rounded-lg p-6">
+                <h3 class="text-lg font-semibold mb-4">Active & Recent Executions</h3>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Run ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Skill</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Started</th>
+                            </tr>
+                        </thead>
+                        <tbody id="executions-table" class="bg-white divide-y divide-gray-200">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let timelineChart, distributionChart;
+
+        function initCharts() {
+            const timelineCtx = document.getElementById('execution-timeline-chart').getContext('2d');
+            timelineChart = new Chart(timelineCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Executions',
+                        data: [],
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+
+            const distCtx = document.getElementById('performance-dist-chart').getContext('2d');
+            distributionChart = new Chart(distCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['0-100ms', '100-500ms', '500-1000ms', '1000-5000ms', '5000ms+'],
+                    datasets: [{
+                        label: 'Execution Count',
+                        data: [0, 0, 0, 0, 0],
+                        backgroundColor: 'rgba(34, 197, 94, 0.5)',
+                        borderColor: 'rgb(34, 197, 94)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        async function updateMonitoring() {
+            const metrics = await fetch('/api/metrics/dashboard').then(r => r.json());
+            const events = await fetch('/api/audit/events?event_type=skill_executed&limit=50').then(r => r.json());
+
+            document.getElementById('live-active').textContent = metrics.current.active_executions;
+            document.getElementById('live-avg-time').textContent =
+                Math.round(metrics.execution_time.p50) + 'ms';
+
+            const successRate = 100 - (metrics.error_rate || 0);
+            document.getElementById('live-success-rate').textContent =
+                successRate.toFixed(1) + '%';
+
+            // Update table
+            const tbody = document.getElementById('executions-table');
+            tbody.innerHTML = events.events.slice(0, 10).map(event => `
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        ${event.run_id || 'N/A'}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${event.skill_id || 'N/A'}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                            ${event.event_type}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${event.duration_ms ? Math.round(event.duration_ms) + 'ms' : '-'}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${new Date(event.timestamp).toLocaleString()}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            updateMonitoring();
+            setInterval(updateMonitoring, 3000);
+        });
+    </script>
+</body>
+</html>

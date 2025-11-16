@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkillFlow MCP - DAG Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+</head>
+<body class="bg-gray-100">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <h1 class="text-2xl font-bold text-blue-600">SkillFlow MCP</h1>
+                    </div>
+                    <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                        <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Dashboard
+                        </a>
+                        <a href="/skills" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Skills
+                        </a>
+                        <a href="/editor" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            DAG Editor
+                        </a>
+                        <a href="/monitoring" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Monitoring
+                        </a>
+                        <a href="/debug" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Debug
+                        </a>
+                        <a href="/builder" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Skill Builder
+                        </a>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button id="save-btn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        Save Skill
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="flex h-screen pt-16">
+        <!-- Left Panel - Toolbox -->
+        <div class="w-64 bg-white shadow-lg p-4 overflow-y-auto">
+            <h2 class="text-lg font-semibold mb-4">Toolbox</h2>
+
+            <!-- Node Types -->
+            <div class="space-y-2">
+                <h3 class="text-sm font-medium text-gray-700 mb-2">Node Types</h3>
+
+                <div class="node-template p-3 bg-blue-100 border-2 border-blue-300 rounded cursor-move hover:bg-blue-200"
+                     data-node-type="tool_call">
+                    <div class="flex items-center">
+                        <svg class="h-5 w-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        <span class="text-sm font-medium">Tool Call</span>
+                    </div>
+                </div>
+
+                <div class="node-template p-3 bg-green-100 border-2 border-green-300 rounded cursor-move hover:bg-green-200"
+                     data-node-type="conditional">
+                    <div class="flex items-center">
+                        <svg class="h-5 w-5 text-green-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16l2.879-2.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span class="text-sm font-medium">Conditional</span>
+                    </div>
+                </div>
+
+                <div class="node-template p-3 bg-purple-100 border-2 border-purple-300 rounded cursor-move hover:bg-purple-200"
+                     data-node-type="loop">
+                    <div class="flex items-center">
+                        <svg class="h-5 w-5 text-purple-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        <span class="text-sm font-medium">Loop</span>
+                    </div>
+                </div>
+
+                <div class="node-template p-3 bg-yellow-100 border-2 border-yellow-300 rounded cursor-move hover:bg-yellow-200"
+                     data-node-type="skill_call">
+                    <div class="flex items-center">
+                        <svg class="h-5 w-5 text-yellow-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                        <span class="text-sm font-medium">Skill Call</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="mt-6 p-3 bg-gray-50 rounded">
+                <h3 class="text-sm font-medium text-gray-700 mb-2">Instructions</h3>
+                <ul class="text-xs text-gray-600 space-y-1">
+                    <li>• Drag nodes from toolbox to canvas</li>
+                    <li>• Click nodes to connect them</li>
+                    <li>• Right-click nodes to edit/delete</li>
+                    <li>• Use layout button to auto-arrange</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Middle Panel - Canvas -->
+        <div class="flex-1 bg-gray-50 relative">
+            <div id="cy" class="w-full h-full"></div>
+
+            <!-- Canvas Controls -->
+            <div class="absolute top-4 right-4 space-y-2">
+                <button id="layout-btn" class="bg-white p-2 rounded shadow hover:bg-gray-100" title="Auto Layout">
+                    <svg class="h-5 w-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                    </svg>
+                </button>
+                <button id="zoom-in-btn" class="bg-white p-2 rounded shadow hover:bg-gray-100" title="Zoom In">
+                    <svg class="h-5 w-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                    </svg>
+                </button>
+                <button id="zoom-out-btn" class="bg-white p-2 rounded shadow hover:bg-gray-100" title="Zoom Out">
+                    <svg class="h-5 w-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 12H6"></path>
+                    </svg>
+                </button>
+                <button id="fit-btn" class="bg-white p-2 rounded shadow hover:bg-gray-100" title="Fit to View">
+                    <svg class="h-5 w-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Right Panel - Properties -->
+        <div class="w-80 bg-white shadow-lg p-4 overflow-y-auto">
+            <h2 class="text-lg font-semibold mb-4">Properties</h2>
+
+            <div id="properties-panel">
+                <p class="text-sm text-gray-500">Select a node to edit its properties</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Cytoscape
+        cytoscape.use(cytoscapeDagre);
+
+        const cy = cytoscape({
+            container: document.getElementById('cy'),
+
+            style: [
+                {
+                    selector: 'node',
+                    style: {
+                        'background-color': '#3B82F6',
+                        'label': 'data(label)',
+                        'color': '#fff',
+                        'text-valign': 'center',
+                        'text-halign': 'center',
+                        'font-size': '12px',
+                        'width': '80px',
+                        'height': '80px',
+                        'shape': 'roundrectangle'
+                    }
+                },
+                {
+                    selector: 'node[type="tool_call"]',
+                    style: {
+                        'background-color': '#3B82F6'
+                    }
+                },
+                {
+                    selector: 'node[type="conditional"]',
+                    style: {
+                        'background-color': '#10B981',
+                        'shape': 'diamond'
+                    }
+                },
+                {
+                    selector: 'node[type="loop"]',
+                    style: {
+                        'background-color': '#8B5CF6'
+                    }
+                },
+                {
+                    selector: 'node[type="skill_call"]',
+                    style: {
+                        'background-color': '#F59E0B'
+                    }
+                },
+                {
+                    selector: 'edge',
+                    style: {
+                        'width': 3,
+                        'line-color': '#94A3B8',
+                        'target-arrow-color': '#94A3B8',
+                        'target-arrow-shape': 'triangle',
+                        'curve-style': 'bezier'
+                    }
+                },
+                {
+                    selector: ':selected',
+                    style: {
+                        'border-width': 3,
+                        'border-color': '#EF4444'
+                    }
+                }
+            ],
+
+            layout: {
+                name: 'dagre',
+                rankDir: 'TB',
+                nodeSep: 50,
+                rankSep: 100
+            }
+        });
+
+        let nodeCounter = 0;
+        let selectedNode = null;
+        let edgeMode = false;
+        let edgeSource = null;
+
+        // Node click handler
+        cy.on('tap', 'node', function(evt) {
+            selectedNode = evt.target;
+
+            if (edgeMode && edgeSource) {
+                // Create edge
+                cy.add({
+                    group: 'edges',
+                    data: {
+                        id: `edge_${Date.now()}`,
+                        source: edgeSource.id(),
+                        target: selectedNode.id()
+                    }
+                });
+                edgeMode = false;
+                edgeSource = null;
+            } else {
+                // Show properties
+                showProperties(selectedNode);
+            }
+        });
+
+        // Canvas click handler (deselect)
+        cy.on('tap', function(evt) {
+            if (evt.target === cy) {
+                selectedNode = null;
+                document.getElementById('properties-panel').innerHTML =
+                    '<p class="text-sm text-gray-500">Select a node to edit its properties</p>';
+            }
+        });
+
+        // Add node function
+        function addNode(type, x, y) {
+            nodeCounter++;
+            const id = `${type}_${nodeCounter}`;
+
+            cy.add({
+                group: 'nodes',
+                data: {
+                    id: id,
+                    label: `${type}\n${nodeCounter}`,
+                    type: type,
+                    tool_name: '',
+                    args: {}
+                },
+                position: { x: x || 200, y: y || 200 }
+            });
+        }
+
+        // Show properties panel
+        function showProperties(node) {
+            const data = node.data();
+            const panel = document.getElementById('properties-panel');
+
+            panel.innerHTML = `
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Node ID</label>
+                        <input type="text" value="${data.id}" disabled
+                               class="w-full px-3 py-2 border border-gray-300 rounded bg-gray-50">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Label</label>
+                        <input type="text" id="prop-label" value="${data.label}"
+                               class="w-full px-3 py-2 border border-gray-300 rounded">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                        <input type="text" value="${data.type}" disabled
+                               class="w-full px-3 py-2 border border-gray-300 rounded bg-gray-50">
+                    </div>
+                    ${data.type === 'tool_call' ? `
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Tool Name</label>
+                        <input type="text" id="prop-tool-name" value="${data.tool_name || ''}"
+                               class="w-full px-3 py-2 border border-gray-300 rounded">
+                    </div>
+                    ` : ''}
+                    <div class="flex space-x-2">
+                        <button id="prop-save-btn" class="flex-1 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                            Save
+                        </button>
+                        <button id="prop-delete-btn" class="flex-1 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
+                            Delete
+                        </button>
+                    </div>
+                    <button id="prop-connect-btn" class="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                        Create Edge
+                    </button>
+                </div>
+            `;
+
+            // Save button
+            document.getElementById('prop-save-btn').addEventListener('click', () => {
+                node.data('label', document.getElementById('prop-label').value);
+                if (data.type === 'tool_call') {
+                    node.data('tool_name', document.getElementById('prop-tool-name').value);
+                }
+            });
+
+            // Delete button
+            document.getElementById('prop-delete-btn').addEventListener('click', () => {
+                node.remove();
+                panel.innerHTML = '<p class="text-sm text-gray-500">Select a node to edit its properties</p>';
+            });
+
+            // Connect button
+            document.getElementById('prop-connect-btn').addEventListener('click', () => {
+                edgeMode = true;
+                edgeSource = node;
+                alert('Click another node to create an edge');
+            });
+        }
+
+        // Controls
+        document.getElementById('layout-btn').addEventListener('click', () => {
+            cy.layout({ name: 'dagre', rankDir: 'TB' }).run();
+        });
+
+        document.getElementById('zoom-in-btn').addEventListener('click', () => {
+            cy.zoom(cy.zoom() * 1.2);
+        });
+
+        document.getElementById('zoom-out-btn').addEventListener('click', () => {
+            cy.zoom(cy.zoom() * 0.8);
+        });
+
+        document.getElementById('fit-btn').addEventListener('click', () => {
+            cy.fit();
+        });
+
+        // Save button
+        document.getElementById('save-btn').addEventListener('click', async () => {
+            const graphData = cy.json();
+            console.log('Saving skill:', graphData);
+            alert('Skill saved! (TODO: Implement save API)');
+        });
+
+        // Drag and drop from toolbox
+        document.querySelectorAll('.node-template').forEach(template => {
+            template.addEventListener('click', () => {
+                const type = template.dataset.nodeType;
+                addNode(type, 200 + Math.random() * 400, 200 + Math.random() * 300);
+            });
+        });
+
+        // Initial layout
+        cy.fit();
+    </script>
+</body>
+</html>

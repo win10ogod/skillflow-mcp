@@ -168,6 +168,9 @@ class RecordingManager:
         selection: Optional[StepSelection] = None,
         expose_params: Optional[list[ExposeParamSpec]] = None,
         tags: Optional[list[str]] = None,
+        concurrency_mode: str = "sequential",
+        concurrency_phases: Optional[dict[str, list[str]]] = None,
+        max_parallel: Optional[int] = None,
     ) -> SkillDraft:
         """Generate a skill draft from a recording session.
 
@@ -179,6 +182,9 @@ class RecordingManager:
             selection: Step selection (None for all steps)
             expose_params: Parameters to expose as skill inputs
             tags: Tags for the skill
+            concurrency_mode: Execution mode: "sequential", "phased", or "full_parallel"
+            concurrency_phases: Phase configuration for phased mode
+            max_parallel: Maximum parallel tasks
 
         Returns:
             A skill draft
@@ -218,12 +224,22 @@ class RecordingManager:
         inputs_schema = self._build_inputs_schema(expose_params or [])
         self._apply_param_templates(nodes, expose_params or [])
 
-        # Build graph
+        # Build graph with configured concurrency
+        # Convert string mode to enum
+        mode_map = {
+            "sequential": ConcurrencyMode.SEQUENTIAL,
+            "phased": ConcurrencyMode.PHASED,
+            "full_parallel": ConcurrencyMode.FULL_PARALLEL,
+        }
+        mode = mode_map.get(concurrency_mode, ConcurrencyMode.SEQUENTIAL)
+
         graph = SkillGraph(
             nodes=nodes,
             edges=edges,
             concurrency=Concurrency(
-                mode=ConcurrencyMode.SEQUENTIAL,
+                mode=mode,
+                phases=concurrency_phases or {},
+                max_parallel=max_parallel,
             ),
         )
 

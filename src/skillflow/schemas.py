@@ -62,6 +62,8 @@ class NodeKind(str, Enum):
     TOOL_CALL = "tool_call"
     SKILL_CALL = "skill_call"
     CONTROL = "control"
+    CONDITIONAL = "conditional"  # if/else/switch
+    LOOP = "loop"  # for/while loops
 
 
 class ErrorStrategy(str, Enum):
@@ -79,6 +81,53 @@ class RetryConfig(BaseModel):
     backoff_multiplier: float = 2.0
 
 
+class ParameterTransform(BaseModel):
+    """Parameter transformation configuration."""
+    engine: Literal["jsonpath", "jinja2", "none"] = "none"
+    expression: Optional[str] = None  # JSONPath or Jinja2 template
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConditionalType(str, Enum):
+    """Type of conditional node."""
+    IF_ELSE = "if_else"
+    SWITCH = "switch"
+
+
+class ConditionalBranch(BaseModel):
+    """A branch in a conditional node."""
+    condition: str  # JSONPath expression that evaluates to boolean
+    nodes: list[str]  # Node IDs to execute if condition is true
+    description: Optional[str] = None
+
+
+class ConditionalConfig(BaseModel):
+    """Configuration for conditional nodes."""
+    type: ConditionalType
+    branches: list[ConditionalBranch]
+    default_branch: Optional[list[str]] = None  # Nodes to execute if no condition matches
+
+
+class LoopType(str, Enum):
+    """Type of loop node."""
+    FOR = "for"  # Iterate over collection
+    WHILE = "while"  # Loop while condition is true
+    FOR_RANGE = "for_range"  # Iterate over numeric range
+
+
+class LoopConfig(BaseModel):
+    """Configuration for loop nodes."""
+    type: LoopType
+    collection_path: Optional[str] = None  # JSONPath to collection (for FOR loops)
+    condition: Optional[str] = None  # JSONPath boolean expression (for WHILE loops)
+    range_start: Optional[int] = None  # Start value (for FOR_RANGE loops)
+    range_end: Optional[int] = None  # End value (for FOR_RANGE loops)
+    range_step: Optional[int] = 1  # Step value (for FOR_RANGE loops)
+    body_nodes: list[str] = Field(default_factory=list)  # Node IDs to execute in each iteration
+    max_iterations: Optional[int] = None  # Safety limit to prevent infinite loops
+    iteration_var: str = "item"  # Variable name for current item/index
+
+
 class SkillNode(BaseModel):
     """A single node in the skill execution graph."""
     id: str
@@ -92,6 +141,11 @@ class SkillNode(BaseModel):
     retry_config: Optional[RetryConfig] = None
     timeout_ms: Optional[int] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Advanced features (Phase 3)
+    parameter_transform: Optional[ParameterTransform] = None
+    conditional_config: Optional[ConditionalConfig] = None  # For CONDITIONAL nodes
+    loop_config: Optional[LoopConfig] = None  # For LOOP nodes
+    skill_id: Optional[str] = None  # For SKILL_CALL nodes (skill nesting)
 
 
 class SkillEdge(BaseModel):
@@ -237,6 +291,7 @@ class TransportType(str, Enum):
     STDIO = "stdio"
     HTTP_SSE = "http_sse"
     STREAMABLE_HTTP = "streamable_http"
+    WEBSOCKET = "websocket"
 
 
 class ServerConfig(BaseModel):

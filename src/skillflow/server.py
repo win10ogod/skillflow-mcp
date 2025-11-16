@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from mcp.server import Server
-from mcp.types import Tool, TextContent
+from mcp.types import Tool, TextContent, ImageContent, AudioContent, EmbeddedResource
 
+from .audit import AuditLogger, AuditEventType, AuditEventSeverity
 from .engine import ExecutionEngine
 from .mcp_clients import MCPClientManager
+from .metrics import MetricsCollector, MetricType
 from .recording import RecordingManager
 from .schemas import (
     ExposeParamSpec,
@@ -41,10 +43,15 @@ class SkillFlowServer:
         self.recording_manager = RecordingManager(self.storage)
         self.mcp_clients = MCPClientManager(self.storage)
 
-        # Initialize execution engine with tool executor
+        # Phase 4: Initialize audit logger and metrics collector
+        self.audit = AuditLogger(self.storage)
+        self.metrics = MetricsCollector(self.storage)
+
+        # Initialize execution engine with tool executor and skill manager for nesting support
         self.engine = ExecutionEngine(
             storage=self.storage,
             tool_executor=self._execute_tool,
+            skill_manager=self.skill_manager,  # Enable skill nesting (Phase 3)
         )
 
         # Track active recording session
@@ -57,11 +64,23 @@ class SkillFlowServer:
         # Register tools
         self._register_tools()
         self._setup_list_tools()
+        self._setup_resources()
+        self._setup_prompts()
 
     async def initialize(self):
         """Initialize server and load data."""
         await self.storage.initialize()
         await self.mcp_clients.initialize()
+
+        # Start metrics collection
+        await self.metrics.start()
+
+        # Log server start event
+        self.audit.log_event(
+            AuditEventType.SERVER_STARTED,
+            "SkillFlow MCP server started",
+            severity=AuditEventSeverity.INFO
+        )
 
         # Register dynamic skill tools
         await self._register_skill_tools()
@@ -86,9 +105,28 @@ class SkillFlowServer:
         if self.active_recording_session:
             start_time = datetime.utcnow()
 
+        # Track timing for metrics
+        import time
+        tool_start = time.time()
+
         try:
             # Execute via MCP client
             result = await self.mcp_clients.call_tool(server_id, tool_name, args)
+
+            # Calculate duration
+            duration_ms = (time.time() - tool_start) * 1000
+
+            # Record metrics
+            self.metrics.tool_call_completed(tool_name, duration_ms)
+
+            # Log audit event
+            self.audit.log_event(
+                AuditEventType.TOOL_CALL_COMPLETED,
+                f"Tool {tool_name} executed successfully",
+                severity=AuditEventSeverity.INFO,
+                tool_name=tool_name,
+                duration_ms=duration_ms
+            )
 
             # Record success
             if self.active_recording_session:
@@ -106,6 +144,20 @@ class SkillFlowServer:
             return result
 
         except Exception as e:
+            # Calculate duration
+            duration_ms = (time.time() - tool_start) * 1000
+
+            # Log audit event for failure
+            self.audit.log_event(
+                AuditEventType.TOOL_CALL_FAILED,
+                f"Tool {tool_name} execution failed: {str(e)}",
+                severity=AuditEventSeverity.ERROR,
+                tool_name=tool_name,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                duration_ms=duration_ms
+            )
+
             # Record error
             if self.active_recording_session:
                 duration = (datetime.utcnow() - start_time).total_seconds() * 1000
@@ -132,10 +184,37 @@ class SkillFlowServer:
                 # Extract skill ID from tool name
                 skill_id = tool_name[7:]  # Remove "skill__" prefix
 
+                # Track execution start
+                import time
+                exec_start = time.time()
+                self.metrics.execution_started()
+
+                # Log execution start
+                self.audit.log_event(
+                    AuditEventType.SKILL_EXECUTED,
+                    f"Skill {skill_id} execution started",
+                    severity=AuditEventSeverity.INFO,
+                    skill_id=skill_id
+                )
+
                 try:
                     # Load and execute the skill
                     skill = await self.skill_manager.get_skill(skill_id)
                     result = await self.engine.run_skill(skill, arguments)
+
+                    # Track execution completion
+                    duration_ms = (time.time() - exec_start) * 1000
+                    self.metrics.execution_completed(duration_ms, success=True)
+
+                    # Log completion
+                    self.audit.log_event(
+                        AuditEventType.SKILL_EXECUTION_COMPLETED,
+                        f"Skill {skill_id} executed successfully",
+                        severity=AuditEventSeverity.INFO,
+                        skill_id=skill_id,
+                        run_id=result.run_id,
+                        duration_ms=duration_ms
+                    )
 
                     import json
                     return [TextContent(
@@ -143,6 +222,21 @@ class SkillFlowServer:
                         text=json.dumps(result.model_dump(mode="json"), indent=2),
                     )]
                 except Exception as e:
+                    # Track execution failure
+                    duration_ms = (time.time() - exec_start) * 1000
+                    self.metrics.execution_completed(duration_ms, success=False)
+
+                    # Log failure
+                    self.audit.log_event(
+                        AuditEventType.SKILL_EXECUTION_FAILED,
+                        f"Skill {skill_id} execution failed: {str(e)}",
+                        severity=AuditEventSeverity.ERROR,
+                        skill_id=skill_id,
+                        error_type=type(e).__name__,
+                        error_message=str(e),
+                        duration_ms=duration_ms
+                    )
+
                     return [TextContent(
                         type="text",
                         text=f"Error executing skill '{skill_id}': {str(e)}",
@@ -155,14 +249,63 @@ class SkillFlowServer:
                 try:
                     result = await self._execute_tool(server_id, actual_tool_name, arguments)
 
-                    # Format result
+                    # Convert upstream MCP result to Content objects
+                    # MCP protocol returns: {'content': [...], 'isError': bool}
+                    # Support all MCP content types: text, image, audio, resource
                     import json
                     if isinstance(result, dict):
                         content = result.get("content", [])
-                        if isinstance(content, list):
-                            return [TextContent(type="text", text=str(item)) for item in content]
+                        if isinstance(content, list) and len(content) > 0:
+                            # Convert each content item to appropriate Content type
+                            converted_content = []
+                            for item in content:
+                                if isinstance(item, dict):
+                                    content_type = item.get("type", "text")
+
+                                    if content_type == "text":
+                                        # TextContent: text messages
+                                        converted_content.append(TextContent(
+                                            type="text",
+                                            text=item.get("text", str(item)),
+                                        ))
+                                    elif content_type == "image":
+                                        # ImageContent: images (screenshots, charts, etc.)
+                                        converted_content.append(ImageContent(
+                                            type="image",
+                                            data=item.get("data", ""),
+                                            mimeType=item.get("mimeType", "image/png"),
+                                        ))
+                                    elif content_type == "audio":
+                                        # AudioContent: audio files (recordings, TTS, etc.)
+                                        converted_content.append(AudioContent(
+                                            type="audio",
+                                            data=item.get("data", ""),
+                                            mimeType=item.get("mimeType", "audio/wav"),
+                                        ))
+                                    elif content_type == "resource":
+                                        # EmbeddedResource: embedded resources (files, data, etc.)
+                                        converted_content.append(EmbeddedResource(
+                                            type="resource",
+                                            resource=item.get("resource", {}),
+                                        ))
+                                    else:
+                                        # Unknown type: convert to text for safety
+                                        # This ensures forward compatibility with future content types
+                                        converted_content.append(TextContent(
+                                            type="text",
+                                            text=json.dumps(item, indent=2, ensure_ascii=False),
+                                        ))
+                                else:
+                                    # Not a dict: convert to text
+                                    converted_content.append(TextContent(
+                                        type="text",
+                                        text=str(item),
+                                    ))
+
+                            return converted_content
                         else:
-                            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+                            # No content or empty: return formatted result
+                            return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
                     else:
                         return [TextContent(type="text", text=str(result))]
 
@@ -221,6 +364,11 @@ class SkillFlowServer:
                 tags = arguments.get("tags") or []
                 expose_params = arguments.get("expose_params") or []
 
+                # NEW: Support concurrency mode configuration
+                concurrency_mode = arguments.get("concurrency_mode", "sequential")
+                concurrency_phases = arguments.get("concurrency_phases")  # For phased mode
+                max_parallel = arguments.get("max_parallel")  # For limiting parallelism
+
                 params = []
                 for p in expose_params:
                     params.append(
@@ -239,6 +387,9 @@ class SkillFlowServer:
                     description=description,
                     expose_params=params,
                     tags=tags,
+                    concurrency_mode=concurrency_mode,
+                    concurrency_phases=concurrency_phases,
+                    max_parallel=max_parallel,
                 )
 
                 author = SkillAuthor(
@@ -391,6 +542,93 @@ class SkillFlowServer:
 
                 return [TextContent(type="text", text="\n".join(lines))]
 
+            # ========== MCP Resources ==========
+            if tool_name == "list_upstream_resources":
+                """List all resources from an upstream MCP server."""
+                import json
+                server_id = arguments["server_id"]
+
+                try:
+                    resources = await self.mcp_clients.list_resources(server_id)
+
+                    if not resources:
+                        return [TextContent(type="text", text=f"No resources available from {server_id}")]
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "server_id": server_id,
+                            "resources": resources,
+                            "count": len(resources),
+                        }, indent=2, ensure_ascii=False)
+                    )]
+                except Exception as e:
+                    return [TextContent(type="text", text=f"Error listing resources from {server_id}: {str(e)}")]
+
+            if tool_name == "read_upstream_resource":
+                """Read a resource from an upstream MCP server."""
+                import json
+                server_id = arguments["server_id"]
+                uri = arguments["uri"]
+
+                try:
+                    resource_content = await self.mcp_clients.read_resource(server_id, uri)
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "server_id": server_id,
+                            "uri": uri,
+                            "content": resource_content,
+                        }, indent=2, ensure_ascii=False)
+                    )]
+                except Exception as e:
+                    return [TextContent(type="text", text=f"Error reading resource {uri} from {server_id}: {str(e)}")]
+
+            # ========== MCP Prompts ==========
+            if tool_name == "list_upstream_prompts":
+                """List all prompts from an upstream MCP server."""
+                import json
+                server_id = arguments["server_id"]
+
+                try:
+                    prompts = await self.mcp_clients.list_prompts(server_id)
+
+                    if not prompts:
+                        return [TextContent(type="text", text=f"No prompts available from {server_id}")]
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "server_id": server_id,
+                            "prompts": prompts,
+                            "count": len(prompts),
+                        }, indent=2, ensure_ascii=False)
+                    )]
+                except Exception as e:
+                    return [TextContent(type="text", text=f"Error listing prompts from {server_id}: {str(e)}")]
+
+            if tool_name == "get_upstream_prompt":
+                """Get a prompt from an upstream MCP server."""
+                import json
+                server_id = arguments["server_id"]
+                prompt_name = arguments["prompt_name"]
+                prompt_arguments = arguments.get("arguments", {})
+
+                try:
+                    prompt = await self.mcp_clients.get_prompt(server_id, prompt_name, prompt_arguments)
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "server_id": server_id,
+                            "prompt_name": prompt_name,
+                            "prompt": prompt,
+                        }, indent=2, ensure_ascii=False)
+                    )]
+                except Exception as e:
+                    return [TextContent(type="text", text=f"Error getting prompt {prompt_name} from {server_id}: {str(e)}")]
+
             if tool_name == "debug_upstream_tools":
                 """Debug tool to check upstream tool proxy status."""
                 import json
@@ -526,6 +764,197 @@ class SkillFlowServer:
                 return [TextContent(
                     type="text",
                     text=f"Skill Tools Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
+                )]
+
+            if tool_name == "debug_skill_definition":
+                """Debug tool to inspect skill definition and compare with source recording."""
+                import json
+
+                skill_id = arguments["skill_id"]
+
+                debug_info = {
+                    "skill_id": skill_id,
+                    "found": False,
+                    "skill": {},
+                    "nodes": [],
+                    "source_session": {},
+                }
+
+                try:
+                    # Load skill
+                    skill = await self.skill_manager.get_skill(skill_id)
+
+                    if skill:
+                        debug_info["found"] = True
+
+                        # Check metadata for source_session_id
+                        source_session_id = skill.metadata.get("source_session_id")
+
+                        debug_info["skill"] = {
+                            "id": skill.id,
+                            "name": skill.name,
+                            "version": skill.version,
+                            "description": skill.description,
+                            "tags": skill.tags,
+                            "metadata": skill.metadata,
+                            "source_session_id": source_session_id,
+                        }
+
+                        # Inspect each node in the graph
+                        if skill.graph:
+                            for node in skill.graph.nodes:
+                                node_detail = {
+                                    "id": node.id,
+                                    "kind": node.kind,
+                                    "server": node.server,
+                                    "tool": node.tool,
+                                    "args_template": node.args_template,
+                                    "args_json": json.dumps(node.args_template, ensure_ascii=False),
+                                    "args_repr": repr(node.args_template),
+                                }
+
+                                # For text arguments, show detailed character analysis
+                                for key, value in node.args_template.items():
+                                    if isinstance(value, str) and len(value) > 0 and not value.startswith("$") and not value.startswith("@"):
+                                        node_detail[f"arg_{key}_length"] = len(value)
+                                        node_detail[f"arg_{key}_chars"] = [c for c in value]
+                                        node_detail[f"arg_{key}_bytes"] = value.encode('utf-8').hex()
+
+                                debug_info["nodes"].append(node_detail)
+
+                except Exception as e:
+                    debug_info["error"] = str(e)
+                    import traceback
+                    debug_info["traceback"] = traceback.format_exc()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Skill Definition Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
+                )]
+
+            if tool_name == "debug_skill_execution":
+                """Debug tool to trace skill execution and diagnose parameter corruption."""
+                import json
+
+                run_id = arguments["run_id"]
+
+                debug_info = {
+                    "run_id": run_id,
+                    "found": False,
+                    "executions": [],
+                }
+
+                try:
+                    # Load execution log
+                    executions = await self.storage.load_run_log(run_id)
+
+                    if executions:
+                        debug_info["found"] = True
+                        debug_info["total_executions"] = len(executions)
+
+                        # Inspect each node execution
+                        for execution in executions:
+                            exec_detail = {
+                                "node_id": execution.node_id,
+                                "server": execution.server,
+                                "tool": execution.tool,
+                                "status": execution.status,
+                                "started_at": execution.started_at.isoformat() if execution.started_at else None,
+                                "ended_at": execution.ended_at.isoformat() if execution.ended_at else None,
+                                "args_resolved": execution.args_resolved,
+                                "args_resolved_json": json.dumps(execution.args_resolved, ensure_ascii=False),
+                                "args_resolved_repr": repr(execution.args_resolved),
+                                "output": execution.output,
+                                "error": execution.error,
+                            }
+
+                            # For text arguments in resolved args, show detailed character analysis
+                            for key, value in execution.args_resolved.items():
+                                if isinstance(value, str) and len(value) > 0:
+                                    exec_detail[f"resolved_{key}_length"] = len(value)
+                                    exec_detail[f"resolved_{key}_chars"] = [c for c in value]
+                                    exec_detail[f"resolved_{key}_bytes"] = value.encode('utf-8').hex()
+
+                            debug_info["executions"].append(exec_detail)
+                    else:
+                        debug_info["message"] = "No execution log found for this run_id"
+
+                except Exception as e:
+                    debug_info["error"] = str(e)
+                    import traceback
+                    debug_info["traceback"] = traceback.format_exc()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Skill Execution Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
+                )]
+
+            if tool_name == "debug_recording_session":
+                """Debug tool to inspect recording session details and diagnose text scrambling issues."""
+                import json
+
+                session_id = arguments["session_id"]
+
+                debug_info = {
+                    "session_id": session_id,
+                    "found": False,
+                    "logs": [],
+                    "summary": {},
+                }
+
+                try:
+                    # Try to load from active sessions first
+                    session = await self.recording_manager.get_active_session(session_id)
+
+                    # If not active, try to load from storage
+                    if not session:
+                        session = await self.storage.load_session(session_id)
+
+                    if session:
+                        debug_info["found"] = True
+                        debug_info["summary"] = {
+                            "started_at": session.started_at.isoformat() if session.started_at else None,
+                            "ended_at": session.ended_at.isoformat() if session.ended_at else None,
+                            "client_id": session.client_id,
+                            "workspace_id": session.workspace_id,
+                            "total_logs": len(session.logs),
+                            "metadata": session.metadata,
+                        }
+
+                        # Show each log with detailed argument inspection
+                        for log in session.logs:
+                            log_detail = {
+                                "index": log.index,
+                                "timestamp": log.timestamp.isoformat(),
+                                "server": log.server,
+                                "tool": log.tool,
+                                "args": log.args,  # Show exact recorded args
+                                "args_json": json.dumps(log.args, ensure_ascii=False),  # Show JSON representation
+                                "args_repr": repr(log.args),  # Show Python repr
+                                "status": log.status,
+                                "duration_ms": log.duration_ms,
+                                "error": log.error,
+                            }
+
+                            # For text arguments, show detailed character analysis
+                            for key, value in log.args.items():
+                                if isinstance(value, str) and len(value) > 0:
+                                    log_detail[f"arg_{key}_length"] = len(value)
+                                    log_detail[f"arg_{key}_chars"] = [c for c in value]
+                                    log_detail[f"arg_{key}_bytes"] = value.encode('utf-8').hex()
+
+                            debug_info["logs"].append(log_detail)
+                    else:
+                        debug_info["error"] = "Session not found"
+
+                except Exception as e:
+                    debug_info["error"] = str(e)
+                    import traceback
+                    debug_info["traceback"] = traceback.format_exc()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Recording Session Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
                 )]
 
             # Unknown tool name
@@ -693,7 +1122,7 @@ class SkillFlowServer:
                 ),
                 Tool(
                     name="create_skill_from_session",
-                    description="Create a skill from a recording session",
+                    description="Create a skill from a recording session with configurable concurrency",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -705,6 +1134,20 @@ class SkillFlowServer:
                             "expose_params": {
                                 "type": "array",
                                 "items": {"type": "object"},
+                            },
+                            "concurrency_mode": {
+                                "type": "string",
+                                "enum": ["sequential", "phased", "full_parallel"],
+                                "description": "Execution mode: sequential (default, one-by-one), phased (groups run in parallel), or full_parallel (maximum parallelism)",
+                                "default": "sequential",
+                            },
+                            "concurrency_phases": {
+                                "type": "object",
+                                "description": "For phased mode: mapping of phase_id to list of node_ids. Example: {'phase1': ['step_1', 'step_2'], 'phase2': ['step_3']}",
+                            },
+                            "max_parallel": {
+                                "type": "integer",
+                                "description": "Maximum number of parallel tasks (optional, applies to parallel modes)",
                             },
                         },
                         "required": ["session_id", "skill_id", "name", "description"],
@@ -787,6 +1230,74 @@ class SkillFlowServer:
                     inputSchema={"type": "object", "properties": {}},
                 ),
                 Tool(
+                    name="list_upstream_resources",
+                    description="List all resources from an upstream MCP server",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "ID of the upstream server",
+                            },
+                        },
+                        "required": ["server_id"],
+                    },
+                ),
+                Tool(
+                    name="read_upstream_resource",
+                    description="Read a resource from an upstream MCP server",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "ID of the upstream server",
+                            },
+                            "uri": {
+                                "type": "string",
+                                "description": "URI of the resource to read",
+                            },
+                        },
+                        "required": ["server_id", "uri"],
+                    },
+                ),
+                Tool(
+                    name="list_upstream_prompts",
+                    description="List all prompts from an upstream MCP server",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "ID of the upstream server",
+                            },
+                        },
+                        "required": ["server_id"],
+                    },
+                ),
+                Tool(
+                    name="get_upstream_prompt",
+                    description="Get a prompt from an upstream MCP server",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "ID of the upstream server",
+                            },
+                            "prompt_name": {
+                                "type": "string",
+                                "description": "Name of the prompt to get",
+                            },
+                            "arguments": {
+                                "type": "object",
+                                "description": "Arguments to pass to the prompt (optional)",
+                            },
+                        },
+                        "required": ["server_id", "prompt_name"],
+                    },
+                ),
+                Tool(
                     name="debug_upstream_tools",
                     description="Debug tool to check if upstream tools are being proxied correctly",
                     inputSchema={"type": "object", "properties": {}},
@@ -795,6 +1306,48 @@ class SkillFlowServer:
                     name="debug_skill_tools",
                     description="Debug tool to check skill tool registration status",
                     inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="debug_skill_definition",
+                    description="Debug tool to inspect skill definition and compare with source recording",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "skill_id": {
+                                "type": "string",
+                                "description": "ID of the skill to inspect",
+                            },
+                        },
+                        "required": ["skill_id"],
+                    },
+                ),
+                Tool(
+                    name="debug_skill_execution",
+                    description="Debug tool to trace skill execution and diagnose parameter corruption during replay",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "run_id": {
+                                "type": "string",
+                                "description": "ID of the skill execution run to inspect",
+                            },
+                        },
+                        "required": ["run_id"],
+                    },
+                ),
+                Tool(
+                    name="debug_recording_session",
+                    description="Debug tool to inspect recording session details and diagnose text scrambling issues",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "session_id": {
+                                "type": "string",
+                                "description": "ID of the recording session to inspect",
+                            },
+                        },
+                        "required": ["session_id"],
+                    },
                 ),
             ]
 
@@ -814,21 +1367,366 @@ class SkillFlowServer:
 
             return base_tools + skill_tools + upstream_tools
 
+    def _setup_resources(self):
+        """Setup MCP resources endpoints."""
+
+        @self.server.list_resources()
+        async def list_resources() -> list[dict]:
+            """List available resources from Skillflow server.
+
+            Resources include:
+            - skill://<skill_id> - Skill definitions
+            - session://<session_id> - Recording sessions
+            - run://<run_id> - Execution logs
+            """
+            resources = []
+
+            # List all skills as resources
+            skills = await self.skill_manager.list_skills()
+            for skill_meta in skills:
+                resources.append({
+                    "uri": f"skill://{skill_meta.id}",
+                    "name": skill_meta.name,
+                    "description": f"Skill: {skill_meta.description}",
+                    "mimeType": "application/json",
+                })
+
+            # List recording sessions as resources
+            try:
+                sessions = await self.storage.list_sessions()
+                for session in sessions:
+                    session_name = session.get("metadata", {}).get("name", session["id"])
+                    resources.append({
+                        "uri": f"session://{session['id']}",
+                        "name": f"Session: {session_name}",
+                        "description": f"Recording session with {len(session.get('logs', []))} tool calls",
+                        "mimeType": "application/json",
+                    })
+            except:
+                pass  # Ignore if sessions not available
+
+            return resources
+
+        @self.server.read_resource()
+        async def read_resource(uri: str) -> str:
+            """Read a resource by URI.
+
+            Supported URI schemes:
+            - skill://<skill_id> - Returns skill definition as JSON
+            - session://<session_id> - Returns recording session as JSON
+            - run://<run_id> - Returns execution log as JSON
+            """
+            import json
+
+            if uri.startswith("skill://"):
+                skill_id = uri[8:]  # Remove "skill://" prefix
+                skill = await self.skill_manager.get_skill(skill_id)
+                return json.dumps(skill.model_dump(mode="json"), indent=2, ensure_ascii=False)
+
+            elif uri.startswith("session://"):
+                session_id = uri[10:]  # Remove "session://" prefix
+                session = await self.storage.load_session(session_id)
+                return json.dumps(session.model_dump(mode="json"), indent=2, ensure_ascii=False)
+
+            elif uri.startswith("run://"):
+                run_id = uri[6:]  # Remove "run://" prefix
+                executions = await self.storage.load_run_log(run_id)
+                return json.dumps(
+                    [exec.model_dump(mode="json") for exec in executions],
+                    indent=2,
+                    ensure_ascii=False
+                )
+
+            else:
+                raise ValueError(f"Unsupported URI scheme: {uri}")
+
+    def _setup_prompts(self):
+        """Setup MCP prompts endpoints."""
+
+        @self.server.list_prompts()
+        async def list_prompts() -> list[dict]:
+            """List available prompts from Skillflow server.
+
+            Prompts include:
+            - create_skill: Guide for creating skills from recordings
+            - debug_skill: Guide for debugging skill issues
+            - optimize_skill: Guide for optimizing skill performance
+            """
+            return [
+                {
+                    "name": "create_skill",
+                    "description": "Step-by-step guide for creating a skill from a recording session",
+                    "arguments": [
+                        {
+                            "name": "session_id",
+                            "description": "ID of the recording session",
+                            "required": True,
+                        },
+                        {
+                            "name": "concurrency",
+                            "description": "Desired concurrency mode (sequential, phased, full_parallel)",
+                            "required": False,
+                        },
+                    ],
+                },
+                {
+                    "name": "debug_skill",
+                    "description": "Guide for debugging skill execution issues",
+                    "arguments": [
+                        {
+                            "name": "skill_id",
+                            "description": "ID of the skill to debug",
+                            "required": True,
+                        },
+                        {
+                            "name": "issue_type",
+                            "description": "Type of issue (execution_error, parameter_corruption, performance)",
+                            "required": False,
+                        },
+                    ],
+                },
+                {
+                    "name": "optimize_skill",
+                    "description": "Guide for optimizing skill performance",
+                    "arguments": [
+                        {
+                            "name": "skill_id",
+                            "description": "ID of the skill to optimize",
+                            "required": True,
+                        },
+                    ],
+                },
+                {
+                    "name": "skill_best_practices",
+                    "description": "Best practices for skill development and maintenance",
+                    "arguments": [],
+                },
+            ]
+
+        @self.server.get_prompt()
+        async def get_prompt(name: str, arguments: dict | None = None) -> dict:
+            """Get a prompt by name with optional arguments."""
+            arguments = arguments or {}
+
+            if name == "create_skill":
+                session_id = arguments.get("session_id", "<session_id>")
+                concurrency = arguments.get("concurrency", "sequential")
+
+                return {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": f"""I want to create a skill from recording session: {session_id}
+
+Please help me:
+1. Review the session using: debug_recording_session({{\"session_id\": \"{session_id}\"}})
+2. Analyze the tool calls and identify:
+   - What steps can be parameterized (exposed as skill inputs)
+   - What execution mode to use: {concurrency}
+   - Whether any steps can run in parallel
+3. Create the skill using: create_skill_from_session({{
+     \"session_id\": \"{session_id}\",
+     \"skill_id\": \"<choose_a_descriptive_id>\",
+     \"name\": \"<skill_name>\",
+     \"description\": \"<what_does_this_skill_do>\",
+     \"concurrency_mode\": \"{concurrency}\",
+     \"expose_params\": [/* parameters to expose */]
+   }})
+4. Test the skill immediately after creation
+
+Tips:
+- Use sequential mode for dependent steps (data pipeline)
+- Use full_parallel for independent tasks (batch operations)
+- Use phased for grouped operations (fetch all → process all)
+""",
+                            },
+                        }
+                    ]
+                }
+
+            elif name == "debug_skill":
+                skill_id = arguments.get("skill_id", "<skill_id>")
+                issue_type = arguments.get("issue_type", "unknown")
+
+                return {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": f"""Help me debug skill: {skill_id}
+Issue type: {issue_type}
+
+Debugging steps:
+1. Check skill definition: debug_skill_definition({{\"skill_id\": \"{skill_id}\"}})
+2. Review source session: Check the source_session_id in metadata
+3. Execute the skill with test inputs and note the run_id
+4. Analyze execution: debug_skill_execution({{\"run_id\": \"<run_id>\"}})
+5. Compare:
+   - Original recording (source session)
+   - Skill definition (args_template)
+   - Execution results (args_resolved)
+
+Common issues:
+- Parameter corruption: Check if text arguments match between definition and execution
+- Execution errors: Check node statuses and error messages
+- Performance: Consider using parallel execution modes
+""",
+                            },
+                        }
+                    ]
+                }
+
+            elif name == "optimize_skill":
+                skill_id = arguments.get("skill_id", "<skill_id>")
+
+                return {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": f"""Optimize skill: {skill_id}
+
+Optimization checklist:
+1. Review skill definition: debug_skill_definition({{\"skill_id\": \"{skill_id}\"}})
+2. Analyze execution pattern:
+   - Are there independent steps that can run in parallel?
+   - Are there bottlenecks (slow tools called sequentially)?
+3. Consider concurrency modes:
+   - Sequential: Safe default, but slowest
+   - Phased: Group similar operations (all API calls, then all processing)
+   - Full parallel: Maximum speed if dependencies allow
+4. Set max_parallel to limit resource usage
+5. Test performance before and after optimization
+
+Example:
+- Before: 10 sequential API calls (10 seconds total)
+- After: 10 parallel API calls (1-2 seconds total)
+""",
+                            },
+                        }
+                    ]
+                }
+
+            elif name == "skill_best_practices":
+                return {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": {
+                                "type": "text",
+                                "text": """Skill Development Best Practices:
+
+1. **Recording**:
+   - Use descriptive session names
+   - Record complete workflows (start to finish)
+   - Avoid unnecessary steps
+
+2. **Parameterization**:
+   - Expose frequently changing values as parameters
+   - Use clear parameter names and descriptions
+   - Provide good default values
+
+3. **Execution Modes**:
+   - Sequential: For workflows with dependencies
+   - Phased: For batch operations with stages
+   - Full Parallel: For independent tasks only
+
+4. **Error Handling**:
+   - Test skills thoroughly before use
+   - Use debug tools to diagnose issues
+   - Keep skills small and focused
+
+5. **Performance**:
+   - Use parallel execution when possible
+   - Set max_parallel to avoid overwhelming systems
+   - Monitor execution times with debug tools
+
+6. **Maintenance**:
+   - Document what each skill does
+   - Use version control (skills support versioning)
+   - Test after updating dependencies
+""",
+                            },
+                        }
+                    ]
+                }
+
+            else:
+                raise ValueError(f"Unknown prompt: {name}")
+
+    async def cleanup(self):
+        """Clean up resources when server shuts down."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("Cleaning up SkillFlow server resources...")
+
+        # Close all upstream client connections
+        try:
+            await self.mcp_clients.close_all()
+            logger.info("All upstream clients closed")
+        except Exception as e:
+            logger.error(f"Error closing upstream clients: {e}")
+
     def run(self):
         """Run the MCP server."""
         import sys
+        import signal
+        import atexit
         from mcp.server.stdio import stdio_server
 
-        async def main():
-            await self.initialize()
-            async with stdio_server() as (read_stream, write_stream):
-                await self.server.run(
-                    read_stream,
-                    write_stream,
-                    self.server.create_initialization_options(),
-                )
+        # Register cleanup on normal exit
+        def sync_cleanup():
+            """Synchronous cleanup wrapper for atexit."""
+            try:
+                # Run cleanup in new event loop if needed
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self.cleanup())
+                loop.close()
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error during cleanup: {e}")
 
-        asyncio.run(main())
+        atexit.register(sync_cleanup)
+
+        async def main():
+            try:
+                await self.initialize()
+                async with stdio_server() as (read_stream, write_stream):
+                    await self.server.run(
+                        read_stream,
+                        write_stream,
+                        self.server.create_initialization_options(),
+                    )
+            finally:
+                # Ensure cleanup happens even if server crashes
+                await self.cleanup()
+
+        # Handle Ctrl+C and termination signals (works on Unix and Windows)
+        def signal_handler(sig, frame):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Received signal {sig}, shutting down gracefully...")
+            # Don't call sys.exit here - let the finally block in main() handle cleanup
+            raise KeyboardInterrupt()
+
+        signal.signal(signal.SIGINT, signal_handler)
+        # SIGTERM only available on Unix
+        if hasattr(signal, 'SIGTERM'):
+            signal.signal(signal.SIGTERM, signal_handler)
+
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("Server stopped by user")
 
 
 def main():

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkillFlow MCP - Skills Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <h1 class="text-2xl font-bold text-blue-600">SkillFlow MCP</h1>
+                    </div>
+                    <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                        <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Dashboard</a>
+                        <a href="/skills" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Skills</a>
+                        <a href="/editor" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">DAG Editor</a>
+                        <a href="/monitoring" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Monitoring</a>
+                        <a href="/debug" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Debug</a>
+                        <a href="/builder" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Skill Builder</a>
+                    </div>
+                </div>
+                <div class="flex items-center">
+                    <a href="/builder" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        + Create Skill
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div class="px-4 py-6 sm:px-0">
+            <h2 class="text-2xl font-bold mb-6">Skills Management</h2>
+
+            <!-- Search and Filter -->
+            <div class="bg-white shadow rounded-lg p-4 mb-6">
+                <div class="flex items-center space-x-4">
+                    <input type="text" id="search-input" placeholder="Search skills..."
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-md">
+                    <select id="filter-select" class="px-4 py-2 border border-gray-300 rounded-md">
+                        <option value="">All Skills</option>
+                        <option value="tool_call">Tool Call</option>
+                        <option value="conditional">Conditional</option>
+                        <option value="loop">Loop</option>
+                    </select>
+                    <button id="refresh-btn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                        Refresh
+                    </button>
+                </div>
+            </div>
+
+            <!-- Skills Grid -->
+            <div id="skills-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Skills will be populated here -->
+            </div>
+
+            <!-- Empty State -->
+            <div id="empty-state" class="hidden text-center py-12">
+                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                </svg>
+                <h3 class="mt-2 text-sm font-medium text-gray-900">No skills</h3>
+                <p class="mt-1 text-sm text-gray-500">Get started by creating a new skill.</p>
+                <div class="mt-6">
+                    <a href="/builder" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
+                        + New Skill
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skill Detail Modal -->
+    <div id="skill-modal" class="hidden fixed z-10 inset-0 overflow-y-auto">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"></div>
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4" id="modal-skill-name">
+                                Skill Details
+                            </h3>
+                            <div class="mt-2">
+                                <pre id="modal-skill-details" class="text-sm text-gray-500 bg-gray-50 p-4 rounded overflow-auto max-h-96"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button type="button" id="modal-close-btn" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allSkills = [];
+
+        async function loadSkills() {
+            try {
+                const response = await fetch('/api/skills');
+                const data = await response.json();
+                allSkills = data.skills || [];
+                displaySkills(allSkills);
+            } catch (error) {
+                console.error('Error loading skills:', error);
+            }
+        }
+
+        function displaySkills(skills) {
+            const grid = document.getElementById('skills-grid');
+            const emptyState = document.getElementById('empty-state');
+
+            if (skills.length === 0) {
+                grid.classList.add('hidden');
+                emptyState.classList.remove('hidden');
+                return;
+            }
+
+            grid.classList.remove('hidden');
+            emptyState.classList.add('hidden');
+
+            grid.innerHTML = skills.map(skill => `
+                <div class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow">
+                    <div class="p-5">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-lg font-medium text-gray-900 truncate">${skill.name}</h3>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                                ${skill.concurrency_mode || 'sequential'}
+                            </span>
+                        </div>
+                        <p class="text-sm text-gray-500 mb-4">${skill.description || 'No description'}</p>
+                        <div class="flex items-center justify-between text-sm text-gray-500 mb-4">
+                            <span>${skill.graph?.nodes?.length || 0} nodes</span>
+                            <span>${skill.graph?.edges?.length || 0} edges</span>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="viewSkill('${skill.id}')" class="flex-1 bg-blue-500 text-white px-3 py-2 rounded text-sm hover:bg-blue-600">
+                                View
+                            </button>
+                            <button onclick="executeSkill('${skill.id}')" class="flex-1 bg-green-500 text-white px-3 py-2 rounded text-sm hover:bg-green-600">
+                                Execute
+                            </button>
+                            <button onclick="deleteSkill('${skill.id}')" class="flex-1 bg-red-500 text-white px-3 py-2 rounded text-sm hover:bg-red-600">
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function viewSkill(skillId) {
+            const response = await fetch(`/api/skills/${skillId}`);
+            const skill = await response.json();
+
+            document.getElementById('modal-skill-name').textContent = skill.name;
+            document.getElementById('modal-skill-details').textContent =
+                JSON.stringify(skill, null, 2);
+            document.getElementById('skill-modal').classList.remove('hidden');
+        }
+
+        async function executeSkill(skillId) {
+            const inputs = prompt('Enter inputs as JSON (or leave empty for default):');
+            let inputsObj = {};
+
+            if (inputs) {
+                try {
+                    inputsObj = JSON.parse(inputs);
+                } catch (error) {
+                    alert('Invalid JSON');
+                    return;
+                }
+            }
+
+            try {
+                const response = await fetch(`/api/skills/${skillId}/execute`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ inputs: inputsObj })
+                });
+
+                const result = await response.json();
+                alert(`Execution completed!\n\nRun ID: ${result.run_id}\nStatus: ${result.status}`);
+            } catch (error) {
+                alert(`Execution failed: ${error.message}`);
+            }
+        }
+
+        async function deleteSkill(skillId) {
+            if (!confirm('Are you sure you want to delete this skill?')) {
+                return;
+            }
+
+            try {
+                await fetch(`/api/skills/${skillId}`, { method: 'DELETE' });
+                alert('Skill deleted successfully');
+                loadSkills();
+            } catch (error) {
+                alert(`Failed to delete skill: ${error.message}`);
+            }
+        }
+
+        document.getElementById('modal-close-btn').addEventListener('click', () => {
+            document.getElementById('skill-modal').classList.add('hidden');
+        });
+
+        document.getElementById('refresh-btn').addEventListener('click', loadSkills);
+
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const filtered = allSkills.filter(skill =>
+                skill.name.toLowerCase().includes(query) ||
+                skill.description?.toLowerCase().includes(query) ||
+                skill.id.toLowerCase().includes(query)
+            );
+            displaySkills(filtered);
+        });
+
+        document.addEventListener('DOMContentLoaded', loadSkills);
+    </script>
+</body>
+</html>

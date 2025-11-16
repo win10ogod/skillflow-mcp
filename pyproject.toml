@@ -1,7 +1,7 @@
 [project]
 name = "skillflow-mcp"
-version = "0.1.0"
-description = "MCP server for recording and replaying tool chains as skills"
+version = "0.3.0"
+description = "MCP server for recording and replaying tool chains as skills with advanced features"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,8 +12,39 @@ dependencies = [
     "pydantic>=2.12.4",
 ]
 
+[project.optional-dependencies]
+# Phase 2: Transport Layer Extensions
+http = [
+    "aiohttp>=3.9.0",
+]
+websocket = [
+    "websockets>=12.0",
+]
+# Phase 3: Advanced Features
+transforms = [
+    "jsonpath-ng>=1.6.0",
+    "jinja2>=3.1.0",
+]
+# Phase 4 & 5: Web UI and Monitoring
+web = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "psutil>=5.9.0",
+]
+# All advanced features
+full = [
+    "aiohttp>=3.9.0",
+    "websockets>=12.0",
+    "jsonpath-ng>=1.6.0",
+    "jinja2>=3.1.0",
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "psutil>=5.9.0",
+]
+
 [project.scripts]
 skillflow = "skillflow.server:main"
+skillflow-web = "skillflow.web_ui:main"
 
 [build-system]
 requires = ["hatchling"]

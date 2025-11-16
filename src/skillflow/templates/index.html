@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkillFlow MCP - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        .metric-card {
+            transition: transform 0.2s;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <div class="flex-shrink-0 flex items-center">
+                        <h1 class="text-2xl font-bold text-blue-600">SkillFlow MCP</h1>
+                    </div>
+                    <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                        <a href="/" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Dashboard
+                        </a>
+                        <a href="/skills" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Skills
+                        </a>
+                        <a href="/editor" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            DAG Editor
+                        </a>
+                        <a href="/monitoring" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Monitoring
+                        </a>
+                        <a href="/debug" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Debug
+                        </a>
+                        <a href="/builder" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
+                            Skill Builder
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- Metrics Overview -->
+        <div class="px-4 py-6 sm:px-0">
+            <h2 class="text-2xl font-bold mb-4">System Overview</h2>
+
+            <!-- Metric Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                <!-- Total Skills -->
+                <div class="metric-card bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 bg-blue-500 rounded-md p-3">
+                                <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                                </svg>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Total Skills</dt>
+                                    <dd id="total-skills" class="text-3xl font-semibold text-gray-900">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Executions -->
+                <div class="metric-card bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 bg-green-500 rounded-md p-3">
+                                <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                </svg>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Active Executions</dt>
+                                    <dd id="active-executions" class="text-3xl font-semibold text-gray-900">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Rate -->
+                <div class="metric-card bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 bg-red-500 rounded-md p-3">
+                                <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                </svg>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Error Rate</dt>
+                                    <dd id="error-rate" class="text-3xl font-semibold text-gray-900">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Throughput -->
+                <div class="metric-card bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 bg-yellow-500 rounded-md p-3">
+                                <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                                </svg>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">Throughput/min</dt>
+                                    <dd id="throughput" class="text-3xl font-semibold text-gray-900">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Tools -->
+            <div class="bg-white shadow rounded-lg p-6 mb-8">
+                <h3 class="text-lg font-semibold mb-4">🚀 Enhanced Tools</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <a href="/editor-advanced" class="block p-4 border-2 border-blue-200 rounded-lg hover:border-blue-500 hover:shadow-md transition-all">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 bg-blue-500 rounded-md p-2">
+                                <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"></path>
+                                </svg>
+                            </div>
+                            <div class="ml-4">
+                                <h4 class="font-semibold text-gray-900">Advanced Node Editor</h4>
+                                <p class="text-sm text-gray-600">Drag-drop DAG editor with MCP integration</p>
+                            </div>
+                        </div>
+                    </a>
+                    <a href="/monitoring-v2" class="block p-4 border-2 border-green-200 rounded-lg hover:border-green-500 hover:shadow-md transition-all">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 bg-green-500 rounded-md p-2">
+                                <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                                </svg>
+                            </div>
+                            <div class="ml-4">
+                                <h4 class="font-semibold text-gray-900">Enhanced Monitoring</h4>
+                                <p class="text-sm text-gray-600">Real-time charts and advanced analytics</p>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <!-- Execution Time Chart -->
+                <div class="bg-white shadow rounded-lg p-6">
+                    <h3 class="text-lg font-semibold mb-4">Execution Time (ms)</h3>
+                    <canvas id="execution-time-chart"></canvas>
+                </div>
+
+                <!-- Throughput Chart -->
+                <div class="bg-white shadow rounded-lg p-6">
+                    <h3 class="text-lg font-semibold mb-4">Throughput</h3>
+                    <canvas id="throughput-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Recent Events -->
+            <div class="bg-white shadow rounded-lg p-6">
+                <h3 class="text-lg font-semibold mb-4">Recent Events</h3>
+                <div id="recent-events" class="space-y-2">
+                    <!-- Events will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket connection for real-time updates
+        let ws = null;
+        let executionTimeChart = null;
+        let throughputChart = null;
+
+        function connectWebSocket() {
+            ws = new WebSocket(`ws://${window.location.host}/ws`);
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'update') {
+                    updateMetrics(data.metrics);
+                    updateRecentEvents(data.recent_events);
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected, reconnecting...');
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        function updateMetrics(metrics) {
+            // Update metric cards
+            document.getElementById('active-executions').textContent =
+                metrics.current?.active_executions || 0;
+            document.getElementById('error-rate').textContent =
+                (metrics.error_rate || 0).toFixed(2) + '%';
+            document.getElementById('throughput').textContent =
+                Math.round(metrics.throughput?.latest || 0);
+
+            // Update charts
+            if (executionTimeChart) {
+                executionTimeChart.data.datasets[0].data = [
+                    metrics.execution_time?.p50 || 0,
+                    metrics.execution_time?.p95 || 0,
+                    metrics.execution_time?.p99 || 0
+                ];
+                executionTimeChart.update();
+            }
+        }
+
+        function updateRecentEvents(events) {
+            const container = document.getElementById('recent-events');
+            container.innerHTML = '';
+
+            events.forEach(event => {
+                const eventDiv = document.createElement('div');
+                eventDiv.className = 'flex items-center space-x-2 p-2 hover:bg-gray-50 rounded';
+
+                const severityColor = {
+                    'info': 'bg-blue-100 text-blue-800',
+                    'warning': 'bg-yellow-100 text-yellow-800',
+                    'error': 'bg-red-100 text-red-800',
+                    'critical': 'bg-purple-100 text-purple-800'
+                }[event.severity] || 'bg-gray-100 text-gray-800';
+
+                eventDiv.innerHTML = `
+                    <span class="px-2 py-1 text-xs font-semibold rounded-full ${severityColor}">
+                        ${event.severity}
+                    </span>
+                    <span class="text-sm text-gray-600">${new Date(event.timestamp).toLocaleString()}</span>
+                    <span class="text-sm text-gray-900">${event.message}</span>
+                `;
+
+                container.appendChild(eventDiv);
+            });
+        }
+
+        async function loadSkillsCount() {
+            const response = await fetch('/api/skills');
+            const data = await response.json();
+            document.getElementById('total-skills').textContent = data.skills?.length || 0;
+        }
+
+        function initCharts() {
+            // Execution Time Chart
+            const execTimeCtx = document.getElementById('execution-time-chart').getContext('2d');
+            executionTimeChart = new Chart(execTimeCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['P50', 'P95', 'P99'],
+                    datasets: [{
+                        label: 'Execution Time (ms)',
+                        data: [0, 0, 0],
+                        backgroundColor: [
+                            'rgba(59, 130, 246, 0.5)',
+                            'rgba(251, 191, 36, 0.5)',
+                            'rgba(239, 68, 68, 0.5)'
+                        ],
+                        borderColor: [
+                            'rgb(59, 130, 246)',
+                            'rgb(251, 191, 36)',
+                            'rgb(239, 68, 68)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // Throughput Chart
+            const throughputCtx = document.getElementById('throughput-chart').getContext('2d');
+            throughputChart = new Chart(throughputCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Executions per minute',
+                        data: [],
+                        borderColor: 'rgb(34, 197, 94)',
+                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            loadSkillsCount();
+            connectWebSocket();
+        });
+    </script>
+</body>
+</html>
