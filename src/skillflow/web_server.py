@@ -21,6 +21,7 @@ from .skills import SkillManager
 from .storage import StorageLayer
 from .recording import RecordingManager
 from .engine import ExecutionEngine
+from .mcp_clients import MCPClientManager
 
 
 class WebServer:
@@ -36,6 +37,7 @@ class WebServer:
         metrics_collector: MetricsCollector,
         host: str = "0.0.0.0",
         port: int = 8080,
+        mcp_client_manager: Optional[MCPClientManager] = None,
     ):
         """
         Initialize web server.
@@ -49,6 +51,7 @@ class WebServer:
             metrics_collector: Metrics collector instance
             host: Host to bind to
             port: Port to bind to
+            mcp_client_manager: Optional MCP client manager for server testing
         """
         self.storage = storage
         self.skill_manager = skill_manager
@@ -56,6 +59,7 @@ class WebServer:
         self.engine = execution_engine
         self.audit = audit_logger
         self.metrics = metrics_collector
+        self.mcp_clients = mcp_client_manager
         self.host = host
         self.port = port
 
@@ -63,7 +67,7 @@ class WebServer:
         self.app = FastAPI(
             title="SkillFlow MCP Server",
             description="Web UI and REST API for SkillFlow",
-            version="0.2.0"
+            version="0.3.0"
         )
 
         # WebSocket connections for real-time updates
@@ -99,10 +103,20 @@ class WebServer:
             """Serve the visual DAG editor."""
             return await self._render_template("editor.html")
 
+        @self.app.get("/editor-advanced", response_class=HTMLResponse)
+        async def editor_advanced_page():
+            """Serve the advanced node-based DAG editor."""
+            return await self._render_template("editor_advanced.html")
+
         @self.app.get("/monitoring", response_class=HTMLResponse)
         async def monitoring_page():
             """Serve the execution monitoring dashboard."""
             return await self._render_template("monitoring.html")
+
+        @self.app.get("/monitoring-v2", response_class=HTMLResponse)
+        async def monitoring_v2_page():
+            """Serve the enhanced execution monitoring dashboard."""
+            return await self._render_template("monitoring_v2.html")
 
         @self.app.get("/debug", response_class=HTMLResponse)
         async def debug_page():
@@ -229,6 +243,115 @@ class WebServer:
             return self.audit.get_statistics(start_time=start_time)
 
         # ======================
+        # API Endpoints - MCP Server Testing
+        # ======================
+
+        @self.app.get("/api/mcp/servers")
+        async def list_mcp_servers():
+            """List all configured MCP servers."""
+            if not self.mcp_clients:
+                return {"servers": [], "message": "MCP client manager not available"}
+
+            servers = []
+            for server_id, config in self.mcp_clients.server_configs.items():
+                servers.append({
+                    "server_id": server_id,
+                    "transport_type": config.get("transport", {}).get("type", "stdio"),
+                    "connected": server_id in self.mcp_clients._clients
+                })
+
+            return {"servers": servers}
+
+        @self.app.get("/api/mcp/servers/{server_id}/tools")
+        async def list_mcp_server_tools(server_id: str):
+            """List all tools available from an MCP server."""
+            if not self.mcp_clients:
+                raise HTTPException(status_code=503, detail="MCP client manager not available")
+
+            try:
+                tools = await self.mcp_clients.list_tools(server_id)
+                return {
+                    "server_id": server_id,
+                    "tools": [
+                        {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "input_schema": tool.inputSchema
+                        }
+                        for tool in tools
+                    ]
+                }
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post("/api/mcp/servers/{server_id}/test")
+        async def test_mcp_server_connection(server_id: str):
+            """Test connection to an MCP server."""
+            if not self.mcp_clients:
+                raise HTTPException(status_code=503, detail="MCP client manager not available")
+
+            try:
+                # Try to list tools to verify connection
+                tools = await self.mcp_clients.list_tools(server_id)
+
+                self.audit.log_event(
+                    AuditEventType.SERVER_STARTED,  # Reusing for connection test
+                    f"MCP server {server_id} connection test successful",
+                    server_id=server_id
+                )
+
+                return {
+                    "server_id": server_id,
+                    "status": "connected",
+                    "tool_count": len(tools),
+                    "message": f"Successfully connected. Found {len(tools)} tools."
+                }
+            except Exception as e:
+                self.audit.log_event(
+                    AuditEventType.TOOL_CALL_FAILED,
+                    f"MCP server {server_id} connection test failed: {str(e)}",
+                    severity=AuditEventSeverity.ERROR,
+                    server_id=server_id
+                )
+                raise HTTPException(status_code=500, detail=f"Connection test failed: {str(e)}")
+
+        @self.app.post("/api/mcp/tools/invoke")
+        async def invoke_mcp_tool(request: InvokeToolRequest):
+            """Invoke a tool from an MCP server for testing."""
+            if not self.mcp_clients:
+                raise HTTPException(status_code=503, detail="MCP client manager not available")
+
+            try:
+                result = await self.mcp_clients.call_tool(
+                    request.server_id,
+                    request.tool_name,
+                    request.arguments
+                )
+
+                self.audit.log_event(
+                    AuditEventType.TOOL_CALL_COMPLETED,
+                    f"Tool {request.tool_name} invoked on {request.server_id} via web UI",
+                    server_id=request.server_id,
+                    tool_name=request.tool_name
+                )
+
+                return {
+                    "server_id": request.server_id,
+                    "tool_name": request.tool_name,
+                    "result": result,
+                    "status": "success"
+                }
+            except Exception as e:
+                self.audit.log_event(
+                    AuditEventType.TOOL_CALL_FAILED,
+                    f"Tool {request.tool_name} failed on {request.server_id}: {str(e)}",
+                    severity=AuditEventSeverity.ERROR,
+                    server_id=request.server_id,
+                    tool_name=request.tool_name
+                )
+                raise HTTPException(status_code=500, detail=f"Tool invocation failed: {str(e)}")
+
+        # ======================
         # WebSocket - Real-time Updates
         # ======================
 
@@ -328,3 +451,10 @@ class UpdateSkillRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     graph: Optional[dict[str, Any]] = None
+
+
+class InvokeToolRequest(BaseModel):
+    """Request model for MCP tool invocation."""
+    server_id: str
+    tool_name: str
+    arguments: dict[str, Any]

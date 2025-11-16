@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkillFlow MCP - Advanced Monitoring</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+    <style>
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .metric-card {
+            transition: all 0.3s ease;
+        }
+        .metric-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <nav class="bg-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <h1 class="text-2xl font-bold text-blue-600">SkillFlow MCP</h1>
+                    <span class="ml-4 px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                        <span class="status-indicator bg-green-500"></span>
+                        <span id="connection-status">Connected</span>
+                    </span>
+                </div>
+                <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
+                    <a href="/" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Dashboard</a>
+                    <a href="/skills" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Skills</a>
+                    <a href="/editor" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Node Editor</a>
+                    <a href="/monitoring" class="border-blue-500 text-gray-900 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Monitoring</a>
+                    <a href="/debug" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Debug</a>
+                    <a href="/builder" class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Builder</a>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button id="refresh-btn" class="p-2 rounded-full hover:bg-gray-100" title="Refresh">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                    </button>
+                    <select id="refresh-interval" class="text-sm border-gray-300 rounded-md">
+                        <option value="1000">1s refresh</option>
+                        <option value="3000" selected>3s refresh</option>
+                        <option value="5000">5s refresh</option>
+                        <option value="10000">10s refresh</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- System Health Overview -->
+        <div class="px-4 py-6 sm:px-0">
+            <h2 class="text-2xl font-bold mb-6 flex items-center">
+                <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                </svg>
+                Real-time System Monitoring
+            </h2>
+
+            <!-- Key Metrics -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <!-- Active Executions -->
+                <div class="metric-card bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="text-sm font-medium opacity-90">Active Executions</div>
+                        <svg class="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                    <div class="text-4xl font-bold" id="active-executions">0</div>
+                    <div class="text-sm opacity-75 mt-2">
+                        <span id="max-concurrent">Max: 0</span>
+                    </div>
+                </div>
+
+                <!-- Throughput -->
+                <div class="metric-card bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="text-sm font-medium opacity-90">Throughput</div>
+                        <svg class="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                        </svg>
+                    </div>
+                    <div class="text-4xl font-bold" id="throughput">0</div>
+                    <div class="text-sm opacity-75 mt-2">executions/min</div>
+                </div>
+
+                <!-- Success Rate -->
+                <div class="metric-card bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="text-sm font-medium opacity-90">Success Rate</div>
+                        <svg class="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <div class="text-4xl font-bold" id="success-rate">100%</div>
+                    <div class="text-sm opacity-75 mt-2">
+                        <span id="total-executions">0 total</span>
+                    </div>
+                </div>
+
+                <!-- Avg Response Time -->
+                <div class="metric-card bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl shadow-lg p-6 text-white">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="text-sm font-medium opacity-90">Avg Response</div>
+                        <svg class="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <div class="text-4xl font-bold" id="avg-response">0ms</div>
+                    <div class="text-sm opacity-75 mt-2">
+                        <span id="p95-response">P95: 0ms</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <!-- Real-time Execution Timeline -->
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="text-lg font-semibold mb-4 flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path>
+                        </svg>
+                        Execution Timeline (Last 60s)
+                    </h3>
+                    <div class="chart-container">
+                        <canvas id="timeline-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Response Time Distribution -->
+                <div class="bg-white rounded-xl shadow-lg p-6">
+                    <h3 class="text-lg font-semibold mb-4 flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                        Response Time Percentiles
+                    </h3>
+                    <div class="chart-container">
+                        <canvas id="percentile-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Executions Table -->
+            <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
+                        Active & Recent Executions
+                    </h3>
+                    <div class="flex items-center space-x-4">
+                        <input type="text" id="exec-search" placeholder="Search..."
+                               class="px-3 py-1 text-sm border border-gray-300 rounded-md">
+                        <select id="exec-filter" class="text-sm border-gray-300 rounded-md">
+                            <option value="">All Status</option>
+                            <option value="running">Running</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Run ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Skill</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="executions-table" class="bg-white divide-y divide-gray-200">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                    <div class="text-sm text-gray-700">
+                        Showing <span id="showing-count">0</span> of <span id="total-count">0</span> executions
+                    </div>
+                    <div class="flex space-x-2">
+                        <button id="prev-page" class="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-100">Previous</button>
+                        <button id="next-page" class="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-100">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        let refreshInterval = 3000;
+        let ws = null;
+        let timelineChart = null;
+        let percentileChart = null;
+        let currentPage = 1;
+        const pageSize = 10;
+        let allExecutions = [];
+
+        // Initialize charts
+        function initCharts() {
+            // Timeline Chart
+            const timelineCtx = document.getElementById('timeline-chart').getContext('2d');
+            timelineChart = new Chart(timelineCtx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Executions',
+                        data: [],
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'second',
+                                displayFormats: {
+                                    second: 'HH:mm:ss'
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Active Executions'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+
+            // Percentile Chart
+            const percentileCtx = document.getElementById('percentile-chart').getContext('2d');
+            percentileChart = new Chart(percentileCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['P50', 'P75', 'P95', 'P99'],
+                    datasets: [{
+                        label: 'Response Time (ms)',
+                        data: [0, 0, 0, 0],
+                        backgroundColor: [
+                            'rgba(34, 197, 94, 0.8)',
+                            'rgba(59, 130, 246, 0.8)',
+                            'rgba(251, 191, 36, 0.8)',
+                            'rgba(239, 68, 68, 0.8)'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Time (ms)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update metrics
+        async function updateMetrics() {
+            try {
+                const response = await fetch('/api/metrics/dashboard');
+                const metrics = await response.json();
+
+                // Update metric cards
+                document.getElementById('active-executions').textContent =
+                    metrics.current?.active_executions || 0;
+                document.getElementById('max-concurrent').textContent =
+                    `Max: ${metrics.current?.max_concurrent_executions || 0}`;
+                document.getElementById('throughput').textContent =
+                    Math.round(metrics.throughput?.latest || 0);
+
+                const successRate = 100 - (metrics.error_rate || 0);
+                document.getElementById('success-rate').textContent =
+                    successRate.toFixed(1) + '%';
+
+                const totalExecs = (metrics.current?.counters?.skill_executions_total || 0);
+                document.getElementById('total-executions').textContent =
+                    `${totalExecs} total`;
+
+                document.getElementById('avg-response').textContent =
+                    Math.round(metrics.execution_time?.p50 || 0) + 'ms';
+                document.getElementById('p95-response').textContent =
+                    `P95: ${Math.round(metrics.execution_time?.p95 || 0)}ms`;
+
+                // Update percentile chart
+                if (percentileChart && metrics.execution_time) {
+                    percentileChart.data.datasets[0].data = [
+                        metrics.execution_time.p50 || 0,
+                        (metrics.execution_time.p50 + metrics.execution_time.p95) / 2 || 0,
+                        metrics.execution_time.p95 || 0,
+                        metrics.execution_time.p99 || 0
+                    ];
+                    percentileChart.update('none');
+                }
+
+                // Update timeline chart
+                if (timelineChart) {
+                    const now = new Date();
+                    timelineChart.data.datasets[0].data.push({
+                        x: now,
+                        y: metrics.current?.active_executions || 0
+                    });
+
+                    // Keep only last 60 data points
+                    if (timelineChart.data.datasets[0].data.length > 60) {
+                        timelineChart.data.datasets[0].data.shift();
+                    }
+
+                    timelineChart.update('none');
+                }
+            } catch (error) {
+                console.error('Error updating metrics:', error);
+                updateConnectionStatus(false);
+            }
+        }
+
+        // Update executions table
+        async function updateExecutions() {
+            try {
+                const response = await fetch('/api/audit/events?event_type=skill_executed&limit=100');
+                const data = await response.json();
+                allExecutions = data.events || [];
+
+                renderExecutionsTable();
+            } catch (error) {
+                console.error('Error updating executions:', error);
+            }
+        }
+
+        // Render executions table
+        function renderExecutionsTable() {
+            const tbody = document.getElementById('executions-table');
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageExecutions = allExecutions.slice(start, end);
+
+            tbody.innerHTML = pageExecutions.map(event => {
+                const status = event.event_type.includes('failed') ? 'failed' :
+                              event.event_type.includes('completed') ? 'completed' : 'running';
+                const statusColors = {
+                    running: 'bg-blue-100 text-blue-800',
+                    completed: 'bg-green-100 text-green-800',
+                    failed: 'bg-red-100 text-red-800'
+                };
+
+                return `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ${event.run_id || 'N/A'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${event.skill_id || 'N/A'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColors[status]}">
+                                ${status}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${event.duration_ms ? Math.round(event.duration_ms) + 'ms' : '-'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            ${new Date(event.timestamp).toLocaleString()}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button onclick="viewExecution('${event.run_id}')" class="text-blue-600 hover:text-blue-900">View</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            document.getElementById('showing-count').textContent = pageExecutions.length;
+            document.getElementById('total-count').textContent = allExecutions.length;
+        }
+
+        // Connection status
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connection-status');
+            const indicator = statusEl.previousElementSibling;
+
+            if (connected) {
+                statusEl.textContent = 'Connected';
+                statusEl.parentElement.className = 'ml-4 px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800';
+                indicator.className = 'status-indicator bg-green-500';
+            } else {
+                statusEl.textContent = 'Disconnected';
+                statusEl.parentElement.className = 'ml-4 px-3 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800';
+                indicator.className = 'status-indicator bg-red-500';
+            }
+        }
+
+        // View execution details
+        function viewExecution(runId) {
+            window.location.href = `/debug?run_id=${runId}`;
+        }
+
+        // Event listeners
+        document.getElementById('refresh-btn').addEventListener('click', () => {
+            updateMetrics();
+            updateExecutions();
+        });
+
+        document.getElementById('refresh-interval').addEventListener('change', (e) => {
+            refreshInterval = parseInt(e.target.value);
+            startAutoRefresh();
+        });
+
+        document.getElementById('prev-page').addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                renderExecutionsTable();
+            }
+        });
+
+        document.getElementById('next-page').addEventListener('click', () => {
+            if (currentPage * pageSize < allExecutions.length) {
+                currentPage++;
+                renderExecutionsTable();
+            }
+        });
+
+        // Auto refresh
+        let refreshTimer = null;
+        function startAutoRefresh() {
+            if (refreshTimer) clearInterval(refreshTimer);
+            refreshTimer = setInterval(() => {
+                updateMetrics();
+                updateExecutions();
+            }, refreshInterval);
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            initCharts();
+            updateConnectionStatus(true);
+            await updateMetrics();
+            await updateExecutions();
+            startAutoRefresh();
+        });
+
+        // Cleanup on unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshTimer) clearInterval(refreshTimer);
+        });
+    </script>
+</body>
+</html>

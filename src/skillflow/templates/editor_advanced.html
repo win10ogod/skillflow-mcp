@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkillFlow MCP - Advanced Node Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-edgehandles@4.0.1/cytoscape-edgehandles.min.js"></script>
+    <style>
+        .node-palette-item {
+            cursor: grab;
+            transition: all 0.2s;
+        }
+        .node-palette-item:active {
+            cursor: grabbing;
+        }
+        .node-palette-item:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        #cy {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #f3f4f6 1px, transparent 1px),
+                        linear-gradient(#f3f4f6 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .property-section {
+            border-left: 3px solid;
+            padding-left: 12px;
+        }
+        .tab-button {
+            transition: all 0.2s;
+        }
+        .tab-button.active {
+            background-color: #3b82f6;
+            color: white;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col">
+    <!-- Top Navigation -->
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center space-x-4">
+                    <h1 class="text-2xl font-bold text-blue-600">SkillFlow</h1>
+                    <span class="text-gray-500">/</span>
+                    <h2 class="text-lg font-semibold text-gray-700">Advanced Node Editor</h2>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button id="new-btn" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
+                        New
+                    </button>
+                    <button id="load-btn" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                        Load Skill
+                    </button>
+                    <button id="save-btn" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+                        Save Skill
+                    </button>
+                    <button id="validate-btn" class="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600">
+                        Validate
+                    </button>
+                    <button id="test-btn" class="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600">
+                        Test
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="flex-1 flex overflow-hidden">
+        <!-- Left Sidebar - Node Palette -->
+        <div class="w-64 bg-white shadow-lg overflow-y-auto">
+            <div class="p-4">
+                <h3 class="text-lg font-semibold mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                    </svg>
+                    Node Palette
+                </h3>
+
+                <!-- Tabs for Categories -->
+                <div class="flex space-x-1 mb-4">
+                    <button class="tab-button active flex-1 px-3 py-2 text-sm rounded" data-tab="basic">Basic</button>
+                    <button class="tab-button flex-1 px-3 py-2 text-sm rounded" data-tab="control">Control</button>
+                    <button class="tab-button flex-1 px-3 py-2 text-sm rounded" data-tab="mcp">MCP</button>
+                </div>
+
+                <!-- Basic Nodes -->
+                <div id="tab-basic" class="tab-content space-y-2">
+                    <div class="node-palette-item p-3 bg-blue-50 border-2 border-blue-300 rounded cursor-pointer"
+                         data-node-type="tool_call" draggable="true">
+                        <div class="flex items-center">
+                            <svg class="h-5 w-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            </svg>
+                            <div>
+                                <div class="text-sm font-medium">Tool Call</div>
+                                <div class="text-xs text-gray-500">Execute MCP tool</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="node-palette-item p-3 bg-yellow-50 border-2 border-yellow-300 rounded cursor-pointer"
+                         data-node-type="skill_call" draggable="true">
+                        <div class="flex items-center">
+                            <svg class="h-5 w-5 text-yellow-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                            <div>
+                                <div class="text-sm font-medium">Skill Call</div>
+                                <div class="text-xs text-gray-500">Call nested skill</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Control Flow Nodes -->
+                <div id="tab-control" class="tab-content space-y-2 hidden">
+                    <div class="node-palette-item p-3 bg-green-50 border-2 border-green-300 rounded cursor-pointer"
+                         data-node-type="conditional" draggable="true">
+                        <div class="flex items-center">
+                            <svg class="h-5 w-5 text-green-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16l2.879-2.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <div>
+                                <div class="text-sm font-medium">Conditional</div>
+                                <div class="text-xs text-gray-500">If/else/switch</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="node-palette-item p-3 bg-purple-50 border-2 border-purple-300 rounded cursor-pointer"
+                         data-node-type="loop" draggable="true">
+                        <div class="flex items-center">
+                            <svg class="h-5 w-5 text-purple-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            <div>
+                                <div class="text-sm font-medium">Loop</div>
+                                <div class="text-xs text-gray-500">For/while iteration</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MCP Server Tools -->
+                <div id="tab-mcp" class="tab-content space-y-2 hidden">
+                    <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">MCP Server</label>
+                        <select id="mcp-server-select" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                            <option value="">Select server...</option>
+                        </select>
+                    </div>
+                    <div id="mcp-tools-list" class="space-y-2">
+                        <p class="text-sm text-gray-500 text-center py-4">Select a server to view tools</p>
+                    </div>
+                </div>
+
+                <!-- Instructions -->
+                <div class="mt-6 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <h4 class="text-sm font-semibold text-blue-900 mb-2">💡 Quick Tips</h4>
+                    <ul class="text-xs text-blue-800 space-y-1">
+                        <li>• Drag nodes to canvas</li>
+                        <li>• Click to select nodes</li>
+                        <li>• Shift+Click to draw edges</li>
+                        <li>• Double-click to edit</li>
+                        <li>• Del key to remove</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center - Canvas -->
+        <div class="flex-1 bg-gray-50 relative">
+            <div id="cy" class="w-full h-full"></div>
+
+            <!-- Canvas Controls -->
+            <div class="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-2 space-y-2">
+                <button id="layout-btn" class="p-2 rounded hover:bg-gray-100 w-full" title="Auto Layout">
+                    <svg class="h-5 w-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                    </svg>
+                </button>
+                <button id="zoom-in-btn" class="p-2 rounded hover:bg-gray-100 w-full" title="Zoom In">
+                    <svg class="h-5 w-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                    </svg>
+                </button>
+                <button id="zoom-out-btn" class="p-2 rounded hover:bg-gray-100 w-full" title="Zoom Out">
+                    <svg class="h-5 w-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 12H6"></path>
+                    </svg>
+                </button>
+                <button id="fit-btn" class="p-2 rounded hover:bg-gray-100 w-full" title="Fit to View">
+                    <svg class="h-5 w-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path>
+                    </svg>
+                </button>
+                <hr class="border-gray-200">
+                <button id="undo-btn" class="p-2 rounded hover:bg-gray-100 w-full" title="Undo">
+                    <svg class="h-5 w-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
+                    </svg>
+                </button>
+                <button id="redo-btn" class="p-2 rounded hover:bg-gray-100 w-full" title="Redo">
+                    <svg class="h-5 w-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Minimap -->
+            <div class="absolute bottom-4 right-4 bg-white rounded-lg shadow-lg p-2">
+                <div id="minimap" class="w-48 h-32 bg-gray-100 rounded"></div>
+            </div>
+        </div>
+
+        <!-- Right Sidebar - Properties -->
+        <div class="w-96 bg-white shadow-lg overflow-y-auto">
+            <div class="p-4">
+                <h3 class="text-lg font-semibold mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                    </svg>
+                    Properties
+                </h3>
+
+                <div id="properties-panel">
+                    <div class="text-center py-12 text-gray-400">
+                        <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path>
+                        </svg>
+                        <p class="text-sm">Select a node to edit its properties</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load Skill Modal -->
+    <div id="load-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-semibold mb-4">Load Skill</h3>
+            <select id="skill-select" class="w-full px-3 py-2 border border-gray-300 rounded-md mb-4">
+                <option value="">Select a skill...</option>
+            </select>
+            <div class="flex justify-end space-x-2">
+                <button id="load-cancel" class="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400">Cancel</button>
+                <button id="load-confirm" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Load</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Cytoscape
+        cytoscape.use(cytoscapeDagre);
+        cytoscape.use(cytoscapeEdgehandles);
+
+        let cy = null;
+        let edgehandles = null;
+        let selectedNode = null;
+        let nodeCounter = 0;
+        let history = [];
+        let historyIndex = -1;
+
+        // Initialize editor
+        function initEditor() {
+            cy = cytoscape({
+                container: document.getElementById('cy'),
+                style: [
+                    {
+                        selector: 'node',
+                        style: {
+                            'background-color': '#3B82F6',
+                            'label': 'data(label)',
+                            'color': '#fff',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'font-size': '12px',
+                            'width': '100px',
+                            'height': '60px',
+                            'shape': 'roundrectangle',
+                            'border-width': '2px',
+                            'border-color': '#1E40AF'
+                        }
+                    },
+                    {
+                        selector: 'node[type="tool_call"]',
+                        style: {
+                            'background-color': '#3B82F6',
+                            'border-color': '#1E40AF'
+                        }
+                    },
+                    {
+                        selector: 'node[type="skill_call"]',
+                        style: {
+                            'background-color': '#F59E0B',
+                            'border-color': '#D97706'
+                        }
+                    },
+                    {
+                        selector: 'node[type="conditional"]',
+                        style: {
+                            'background-color': '#10B981',
+                            'border-color': '#059669',
+                            'shape': 'diamond'
+                        }
+                    },
+                    {
+                        selector: 'node[type="loop"]',
+                        style: {
+                            'background-color': '#8B5CF6',
+                            'border-color': '#7C3AED'
+                        }
+                    },
+                    {
+                        selector: 'edge',
+                        style: {
+                            'width': 3,
+                            'line-color': '#94A3B8',
+                            'target-arrow-color': '#94A3B8',
+                            'target-arrow-shape': 'triangle',
+                            'curve-style': 'bezier'
+                        }
+                    },
+                    {
+                        selector: ':selected',
+                        style: {
+                            'border-width': 4,
+                            'border-color': '#EF4444'
+                        }
+                    }
+                ],
+                layout: {
+                    name: 'dagre',
+                    rankDir: 'TB'
+                }
+            });
+
+            // Enable edge drawing
+            edgehandles = cy.edgehandles({
+                canConnect: function(sourceNode, targetNode) {
+                    return !sourceNode.same(targetNode);
+                },
+                edgeParams: function(sourceNode, targetNode) {
+                    return {};
+                }
+            });
+
+            // Event handlers
+            cy.on('tap', 'node', function(evt) {
+                selectedNode = evt.target;
+                showNodeProperties(selectedNode);
+            });
+
+            cy.on('tap', function(evt) {
+                if (evt.target === cy) {
+                    selectedNode = null;
+                    hideNodeProperties();
+                }
+            });
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Delete' && selectedNode) {
+                    selectedNode.remove();
+                    hideNodeProperties();
+                    saveHistory();
+                }
+            });
+        }
+
+        // Add node to canvas
+        function addNode(type, x, y, data = {}) {
+            nodeCounter++;
+            const id = `${type}_${nodeCounter}`;
+
+            const node = cy.add({
+                group: 'nodes',
+                data: {
+                    id: id,
+                    label: data.label || `${type}\n${nodeCounter}`,
+                    type: type,
+                    ...data
+                },
+                position: { x: x || 200, y: y || 200 }
+            });
+
+            saveHistory();
+            return node;
+        }
+
+        // Show node properties
+        function showNodeProperties(node) {
+            const panel = document.getElementById('properties-panel');
+            const data = node.data();
+
+            let html = `
+                <div class="space-y-4">
+                    <div class="property-section border-blue-500">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-2">Basic Info</h4>
+                        <div class="space-y-2">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Node ID</label>
+                                <input type="text" value="${data.id}" disabled
+                                       class="mt-1 w-full px-3 py-2 border border-gray-300 rounded bg-gray-50 text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Label</label>
+                                <input type="text" id="prop-label" value="${data.label}"
+                                       class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Type</label>
+                                <input type="text" value="${data.type}" disabled
+                                       class="mt-1 w-full px-3 py-2 border border-gray-300 rounded bg-gray-50 text-sm">
+                            </div>
+                        </div>
+                    </div>
+            `;
+
+            // Type-specific properties
+            if (data.type === 'tool_call') {
+                html += `
+                    <div class="property-section border-blue-500">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-2">Tool Configuration</h4>
+                        <div class="space-y-2">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Tool Name</label>
+                                <input type="text" id="prop-tool-name" value="${data.tool_name || ''}"
+                                       class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Arguments (JSON)</label>
+                                <textarea id="prop-args" rows="4"
+                                          class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
+                                          placeholder='{"arg1": "value1"}'>${JSON.stringify(data.args || {}, null, 2)}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (data.type === 'skill_call') {
+                html += `
+                    <div class="property-section border-yellow-500">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-2">Nested Skill</h4>
+                        <div class="space-y-2">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Skill ID</label>
+                                <select id="prop-skill-id" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                                    <option value="">Select skill...</option>
+                                </select>
+                            </div>
+                            <button onclick="loadNestedSkills()" class="w-full px-3 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
+                                Refresh Skills
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else if (data.type === 'conditional') {
+                html += `
+                    <div class="property-section border-green-500">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-2">Conditional Logic</h4>
+                        <div class="space-y-2">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Type</label>
+                                <select id="prop-cond-type" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                                    <option value="if_else">If/Else</option>
+                                    <option value="switch">Switch</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Condition</label>
+                                <input type="text" id="prop-condition" placeholder="$.status == 'success'"
+                                       class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (data.type === 'loop') {
+                html += `
+                    <div class="property-section border-purple-500">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-2">Loop Configuration</h4>
+                        <div class="space-y-2">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Loop Type</label>
+                                <select id="prop-loop-type" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                                    <option value="for">For (Collection)</option>
+                                    <option value="while">While (Condition)</option>
+                                    <option value="for_range">For Range</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Collection Path / Condition</label>
+                                <input type="text" id="prop-loop-path" placeholder="$.items or condition"
+                                       class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600">Max Iterations</label>
+                                <input type="number" id="prop-max-iter" value="100"
+                                       class="mt-1 w-full px-3 py-2 border border-gray-300 rounded text-sm">
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += `
+                    <div class="flex space-x-2">
+                        <button id="prop-save-btn" class="flex-1 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 text-sm">
+                            Save
+                        </button>
+                        <button id="prop-delete-btn" class="flex-1 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 text-sm">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            panel.innerHTML = html;
+
+            // Event listeners
+            document.getElementById('prop-save-btn').addEventListener('click', saveNodeProperties);
+            document.getElementById('prop-delete-btn').addEventListener('click', () => {
+                node.remove();
+                hideNodeProperties();
+                saveHistory();
+            });
+
+            // Load nested skills if skill_call node
+            if (data.type === 'skill_call') {
+                loadNestedSkills();
+            }
+        }
+
+        // Save node properties
+        function saveNodeProperties() {
+            if (!selectedNode) return;
+
+            const data = selectedNode.data();
+            selectedNode.data('label', document.getElementById('prop-label').value);
+
+            if (data.type === 'tool_call') {
+                selectedNode.data('tool_name', document.getElementById('prop-tool-name').value);
+                try {
+                    const args = JSON.parse(document.getElementById('prop-args').value);
+                    selectedNode.data('args', args);
+                } catch (e) {
+                    alert('Invalid JSON in arguments');
+                }
+            } else if (data.type === 'skill_call') {
+                selectedNode.data('skill_id', document.getElementById('prop-skill-id').value);
+            } else if (data.type === 'conditional') {
+                selectedNode.data('cond_type', document.getElementById('prop-cond-type').value);
+                selectedNode.data('condition', document.getElementById('prop-condition').value);
+            } else if (data.type === 'loop') {
+                selectedNode.data('loop_type', document.getElementById('prop-loop-type').value);
+                selectedNode.data('loop_path', document.getElementById('prop-loop-path').value);
+                selectedNode.data('max_iterations', parseInt(document.getElementById('prop-max-iter').value));
+            }
+
+            saveHistory();
+        }
+
+        // Hide node properties
+        function hideNodeProperties() {
+            const panel = document.getElementById('properties-panel');
+            panel.innerHTML = `
+                <div class="text-center py-12 text-gray-400">
+                    <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path>
+                    </svg>
+                    <p class="text-sm">Select a node to edit its properties</p>
+                </div>
+            `;
+        }
+
+        // Load nested skills
+        async function loadNestedSkills() {
+            try {
+                const response = await fetch('/api/skills');
+                const data = await response.json();
+                const select = document.getElementById('prop-skill-id');
+                if (select) {
+                    select.innerHTML = '<option value="">Select skill...</option>';
+                    data.skills.forEach(skill => {
+                        const option = document.createElement('option');
+                        option.value = skill.id;
+                        option.textContent = skill.name;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading skills:', error);
+            }
+        }
+
+        // History management
+        function saveHistory() {
+            const state = cy.json();
+            history = history.slice(0, historyIndex + 1);
+            history.push(state);
+            historyIndex = history.length - 1;
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab-button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Update button states
+                document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                // Update content
+                const tabName = btn.dataset.tab;
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.add('hidden');
+                });
+                document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+            });
+        });
+
+        // Drag and drop from palette
+        document.querySelectorAll('.node-palette-item').forEach(item => {
+            item.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('node-type', item.dataset.nodeType);
+            });
+        });
+
+        document.getElementById('cy').addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        document.getElementById('cy').addEventListener('drop', (e) => {
+            e.preventDefault();
+            const nodeType = e.dataTransfer.getData('node-type');
+            if (nodeType) {
+                const rect = e.target.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const pos = cy.pan();
+                const zoom = cy.zoom();
+                addNode(nodeType, (x - pos.x) / zoom, (y - pos.y) / zoom);
+            }
+        });
+
+        // Controls
+        document.getElementById('layout-btn').addEventListener('click', () => {
+            cy.layout({ name: 'dagre', rankDir: 'TB' }).run();
+        });
+
+        document.getElementById('zoom-in-btn').addEventListener('click', () => {
+            cy.zoom(cy.zoom() * 1.2);
+        });
+
+        document.getElementById('zoom-out-btn').addEventListener('click', () => {
+            cy.zoom(cy.zoom() * 0.8);
+        });
+
+        document.getElementById('fit-btn').addEventListener('click', () => {
+            cy.fit();
+        });
+
+        document.getElementById('undo-btn').addEventListener('click', () => {
+            if (historyIndex > 0) {
+                historyIndex--;
+                cy.json(history[historyIndex]);
+            }
+        });
+
+        document.getElementById('redo-btn').addEventListener('click', () => {
+            if (historyIndex < history.length - 1) {
+                historyIndex++;
+                cy.json(history[historyIndex]);
+            }
+        });
+
+        // Save skill
+        document.getElementById('save-btn').addEventListener('click', async () => {
+            const skillName = prompt('Enter skill name:');
+            if (!skillName) return;
+
+            const graphData = cy.json();
+            const skill = {
+                skill_id: skillName.toLowerCase().replace(/\s+/g, '_'),
+                name: skillName,
+                description: '',
+                graph: {
+                    nodes: graphData.elements.nodes.map(n => ({
+                        id: n.data.id,
+                        kind: n.data.type,
+                        tool_name: n.data.tool_name,
+                        args_template: n.data.args || {},
+                        skill_id: n.data.skill_id,
+                        depends_on: []
+                    })),
+                    edges: graphData.elements.edges.map(e => ({
+                        from: e.data.source,
+                        to: e.data.target
+                    }))
+                }
+            };
+
+            console.log('Saving skill:', skill);
+            alert('Skill saved! (API integration pending)');
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initEditor();
+            saveHistory();
+        });
+    </script>
+</body>
+</html>
