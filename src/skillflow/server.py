@@ -411,8 +411,12 @@ class SkillFlowServer:
                     continue
 
                 try:
-                    # Get tools from this server
-                    tools = await self.mcp_clients.list_tools(server_config.server_id)
+                    # Try to get tools from this server with timeout
+                    # Use asyncio.wait_for to prevent hanging on slow/unresponsive servers
+                    tools = await asyncio.wait_for(
+                        self.mcp_clients.list_tools(server_config.server_id),
+                        timeout=3.0  # 3 second timeout per server
+                    )
 
                     # Create proxy tools with prefixed names
                     for tool_dict in tools:
@@ -429,11 +433,16 @@ class SkillFlowServer:
                         )
                         upstream_tools.append(proxy_tool)
 
+                except asyncio.TimeoutError:
+                    # Silently skip servers that timeout - don't block initialization
+                    pass
                 except Exception as e:
-                    print(f"Error listing tools from {server_config.server_id}: {e}")
+                    # Silently skip servers with errors - don't block initialization
+                    pass
 
         except Exception as e:
-            print(f"Error getting upstream tools: {e}")
+            # Silently fail - don't block the entire server initialization
+            pass
 
         return upstream_tools
 

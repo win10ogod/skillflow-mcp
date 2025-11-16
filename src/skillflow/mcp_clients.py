@@ -21,19 +21,15 @@ class MCPClientManager:
         """
         self.storage = storage
         self._clients: dict[str, ClientSession] = {}
+        self._client_contexts: dict[str, Any] = {}  # Store context managers
         self._registry: Optional[ServerRegistry] = None
 
     async def initialize(self):
         """Initialize client manager and load registry."""
         self._registry = await self.storage.load_registry()
 
-        # Auto-connect to enabled servers
-        for server_id, config in self._registry.servers.items():
-            if config.enabled:
-                try:
-                    await self.connect_server(server_id)
-                except Exception as e:
-                    print(f"Failed to connect to {server_id}: {e}")
+        # Note: We don't auto-connect to servers during initialization to avoid
+        # timeout issues. Servers will be connected lazily when first used.
 
     async def connect_server(self, server_id: str) -> ClientSession:
         """Connect to an upstream MCP server.
@@ -92,8 +88,12 @@ class MCPClientManager:
         )
 
         # Create stdio client (stdio_client is an async context manager)
-        streams = stdio_client(server_params)
-        read, write = await streams.__aenter__()
+        # We need to enter the context and keep it alive
+        context = stdio_client(server_params)
+        read, write = await context.__aenter__()
+
+        # Store the context manager so we can properly exit it later
+        self._client_contexts[config.server_id] = context
 
         session = ClientSession(read, write)
         await session.initialize()
@@ -120,9 +120,15 @@ class MCPClientManager:
             server_id: ID of the server to disconnect
         """
         session = self._clients.pop(server_id, None)
-        if session:
-            # Clean up session
-            pass
+        context = self._client_contexts.pop(server_id, None)
+
+        if context:
+            # Properly exit the context manager
+            try:
+                await context.__aexit__(None, None, None)
+            except Exception:
+                # Ignore errors during cleanup
+                pass
 
     async def call_tool(
         self,
