@@ -2,6 +2,120 @@
 
 All notable changes to Skillflow-MCP will be documented in this file.
 
+## [0.2.0] - 2025-11-16
+
+### Added - Phase 2: Transport Layer Extensions 🌐
+
+- **HTTP+SSE Transport Support** 🔌
+  - Full implementation of HTTP Server-Sent Events transport
+  - Real-time bidirectional communication with MCP servers
+  - Auto-reconnection and error handling
+  - Module: `http_sse_client.py`
+  - Install: `pip install skillflow-mcp[http]`
+
+- **WebSocket Transport Support** 🔌
+  - Complete WebSocket transport implementation
+  - Persistent bidirectional connections
+  - Automatic ping/pong keepalive
+  - Module: `websocket_client.py`
+  - Install: `pip install skillflow-mcp[websocket]`
+
+- **Transport Type Support**:
+  - ✅ stdio (existing)
+  - ✅ http_sse (new)
+  - ✅ websocket (new)
+  - ⏳ streamable_http (schema ready, implementation pending)
+
+### Added - Phase 3: Advanced Features 🚀
+
+- **Conditional Nodes (if/else/switch)** 🔀
+  - Support for conditional branching in skills
+  - Multiple branch types: if_else, switch
+  - Condition evaluation via JSONPath, Jinja2, or Python expressions
+  - Default branch for fallback logic
+  - Schema models: `ConditionalType`, `ConditionalBranch`, `ConditionalConfig`
+
+- **Loop Nodes (for/while)** 🔄
+  - Iterate over collections with FOR loops
+  - Conditional iteration with WHILE loops
+  - Numeric range iteration with FOR_RANGE loops
+  - Safety limits to prevent infinite loops
+  - Access to iteration variables in nested nodes
+  - Schema models: `LoopType`, `LoopConfig`
+
+- **Skill Nesting and Composition** 🏗️
+  - Skills can now call other skills
+  - NodeKind.SKILL_CALL support
+  - skill_id field in SkillNode
+  - Recursive skill execution with dependency management
+  - Enables building complex workflows from simple skills
+
+- **Parameter Transformation (JSONPath & Jinja2)** 🔧
+  - Transform parameters using JSONPath queries
+  - Template parameters with Jinja2
+  - Module: `parameter_transform.py`
+  - Schema model: `ParameterTransform`
+  - Install: `pip install skillflow-mcp[transforms]`
+  - Example:
+    ```python
+    {
+      "parameter_transform": {
+        "engine": "jsonpath",
+        "expression": "$.data.items[*].name"
+      }
+    }
+    ```
+
+- **Enhanced Node Types**:
+  - TOOL_CALL (existing)
+  - SKILL_CALL (new - for skill nesting)
+  - CONTROL (existing)
+  - CONDITIONAL (new - for if/else/switch)
+  - LOOP (new - for for/while)
+
+### Changed - 2025-11-16
+
+- **Hot Reload Confirmed** ♻️
+  - Skills are dynamically discovered on every tool list request
+  - No server restart needed for new skills
+  - Skill edits and deletions take effect immediately
+  - Already implemented in previous versions, now documented
+
+- **Version Bump**: 0.1.0 → 0.2.0
+  - Reflects major feature additions
+  - Breaking changes: None (fully backward compatible)
+
+### Installation Options
+
+```bash
+# Core features only
+pip install skillflow-mcp
+
+# With HTTP+SSE transport
+pip install skillflow-mcp[http]
+
+# With WebSocket transport
+pip install skillflow-mcp[websocket]
+
+# With parameter transformations
+pip install skillflow-mcp[transforms]
+
+# With all advanced features
+pip install skillflow-mcp[full]
+```
+
+### Roadmap Progress
+
+- ✅ Phase 1: Core Features (Complete)
+- ✅ Phase 2: Transport Layer (HTTP+SSE ✅, WebSocket ✅, Streamable HTTP ⏳)
+- ⚠️ Phase 3: Advanced Features (Schemas ready, engine implementation pending)
+  - ✅ Schemas defined for all features
+  - ✅ Parameter transformation module complete
+  - ⏳ Engine execution logic for conditional nodes (pending)
+  - ⏳ Engine execution logic for loop nodes (pending)
+  - ⏳ Engine execution logic for skill nesting (pending)
+  - ⏳ Integration of new transports into mcp_clients.py (pending)
+
 ## [Unreleased]
 
 ### Added - 2025-11-16 (New Features) ✨

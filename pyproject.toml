@@ -1,7 +1,7 @@
 [project]
 name = "skillflow-mcp"
-version = "0.1.0"
-description = "MCP server for recording and replaying tool chains as skills"
+version = "0.2.0"
+description = "MCP server for recording and replaying tool chains as skills with advanced features"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -10,6 +10,27 @@ dependencies = [
     "mcp[cli]>=1.21.1",
     "msgspec>=0.19.0",
     "pydantic>=2.12.4",
+]
+
+[project.optional-dependencies]
+# Phase 2: Transport Layer Extensions
+http = [
+    "aiohttp>=3.9.0",
+]
+websocket = [
+    "websockets>=12.0",
+]
+# Phase 3: Advanced Features
+transforms = [
+    "jsonpath-ng>=1.6.0",
+    "jinja2>=3.1.0",
+]
+# All advanced features
+full = [
+    "aiohttp>=3.9.0",
+    "websockets>=12.0",
+    "jsonpath-ng>=1.6.0",
+    "jinja2>=3.1.0",
 ]
 
 [project.scripts]
