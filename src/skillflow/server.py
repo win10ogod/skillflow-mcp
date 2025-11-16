@@ -127,6 +127,27 @@ class SkillFlowServer:
         async def handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> list[TextContent]:
             """Handle all tool calls dispatched by name."""
 
+            # ========== Skill Tools (Dynamic) ==========
+            if tool_name.startswith("skill__"):
+                # Extract skill ID from tool name
+                skill_id = tool_name[7:]  # Remove "skill__" prefix
+
+                try:
+                    # Load and execute the skill
+                    skill = await self.skill_manager.get_skill(skill_id)
+                    result = await self.engine.run_skill(skill, arguments)
+
+                    import json
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(result.model_dump(mode="json"), indent=2),
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"Error executing skill '{skill_id}': {str(e)}",
+                    )]
+
             # ========== Upstream Server Tools (Proxied) ==========
             server_id, actual_tool_name = self._parse_upstream_tool_name(tool_name)
             if server_id and actual_tool_name:
@@ -500,36 +521,15 @@ class SkillFlowServer:
             ]
 
     async def _register_skill_tools(self):
-        """Dynamically register tools for all skills."""
-        skills = await self.skill_manager.list_skills()
+        """Register skill tools (now handled dynamically in handle_tool_call).
 
-        for skill_meta in skills:
-            try:
-                skill = await self.skill_manager.get_skill(skill_meta.id)
-
-                # Create tool descriptor
-                tool_name = f"skill__{skill.id}"
-
-                # Define tool handler
-                async def skill_handler(**inputs) -> list[TextContent]:
-                    """Execute the skill."""
-                    # Capture skill in closure
-                    current_skill = skill
-
-                    result = await self.engine.run_skill(current_skill, inputs)
-
-                    import json
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(result.model_dump(mode="json"), indent=2),
-                    )]
-
-                # Register tool
-                # Note: This is a simplified approach; in production, use proper dynamic registration
-                # For now, we'll rely on list_tools to expose skills
-
-            except Exception as e:
-                print(f"Error registering skill {skill_meta.id}: {e}")
+        This method is kept for backward compatibility but no longer performs
+        pre-registration. Skill tools are now loaded and executed on-demand,
+        allowing new skills to be callable immediately without server restart.
+        """
+        # Skills are now handled dynamically in handle_tool_call
+        # No pre-registration needed
+        pass
 
     async def _get_upstream_tools(self) -> list[Tool]:
         """Get all tools from upstream servers and create proxy tools.

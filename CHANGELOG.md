@@ -28,11 +28,23 @@ All notable changes to Skillflow-MCP will be documented in this file.
     - 超长工具名：自动截断并添加 `..` 后缀
   - 🔄 **向后兼容**：仍支持解析旧的 `upstream__` 格式
 
+- **修复技能工具无法调用的问题**
+  - 🎯 **问题**：技能创建后返回 "Unknown tool: skill__xxx"
+  - 🎯 **根本原因**：技能工具只在 list_tools 中出现，但 handle_tool_call 没有处理逻辑
+  - ✅ **解决方案**：动态加载技能工具
+    - 在 handle_tool_call 中检测 `skill__` 前缀
+    - 按需加载和执行技能，无需预注册
+    - 技能创建后**立即可用**，无需重启服务器或刷新客户端
+  - 📦 **好处**：
+    - ✅ 即时可用 - 创建后立即可调用
+    - ✅ 内存效率 - 只在需要时加载
+    - ✅ 始终最新 - 每次调用都读取最新版本
+
 - **新增调试工具**：
   - `debug_skill_tools` - 检查技能工具注册状态
     - 列出所有技能及其对应的工具名
     - 显示技能工具在 list_tools 中的实际状态
-    - 帮助诊断"技能创建后无法调用"问题
+    - 帮助诊断技能相关问题
 
 - **新增文件**：
   - `src/skillflow/tool_naming.py` - 智能工具命名策略
