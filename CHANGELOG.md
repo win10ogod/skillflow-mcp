@@ -58,6 +58,15 @@ All notable changes to Skillflow-MCP will be documented in this file.
     - 列出所有技能及其对应的工具名
     - 显示技能工具在 list_tools 中的实际状态
     - 帮助诊断技能相关问题
+  - `debug_recording_session` - 检查录制会话详情和诊断文本乱码问题
+    - 显示会话中每个工具调用的详细参数
+    - 对文本参数进行字符级分析（字符列表、字节表示）
+    - 帮助识别文本是否在录制阶段就已损坏
+  - `debug_skill_definition` - 检查技能定义并与源录制对比
+    - 显示技能图中每个节点的参数模板
+    - 对文本参数进行字符级分析
+    - 对比技能定义与源录制，检查是否一致
+    - 帮助识别文本是否在技能创建阶段损坏
 
 - **新增文件**：
   - `src/skillflow/tool_naming.py` - 智能工具命名策略

@@ -528,6 +528,159 @@ class SkillFlowServer:
                     text=f"Skill Tools Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
                 )]
 
+            if tool_name == "debug_skill_definition":
+                """Debug tool to inspect skill definition and compare with source recording."""
+                import json
+
+                skill_id = arguments["skill_id"]
+
+                debug_info = {
+                    "skill_id": skill_id,
+                    "found": False,
+                    "skill": {},
+                    "nodes": [],
+                    "source_session": {},
+                }
+
+                try:
+                    # Load skill
+                    skill = await self.skill_manager.get_skill(skill_id)
+
+                    if skill:
+                        debug_info["found"] = True
+                        debug_info["skill"] = {
+                            "id": skill.id,
+                            "name": skill.name,
+                            "version": skill.version,
+                            "description": skill.description,
+                            "tags": skill.tags,
+                            "source_session_id": skill.draft.source_session_id if skill.draft else None,
+                        }
+
+                        # Inspect each node in the graph
+                        if skill.graph:
+                            for node in skill.graph.nodes:
+                                node_detail = {
+                                    "id": node.id,
+                                    "kind": node.kind,
+                                    "server": node.server,
+                                    "tool": node.tool,
+                                    "args_template": node.args_template,
+                                    "args_json": json.dumps(node.args_template, ensure_ascii=False),
+                                    "args_repr": repr(node.args_template),
+                                }
+
+                                # For text arguments, show detailed character analysis
+                                for key, value in node.args_template.items():
+                                    if isinstance(value, str) and len(value) > 0 and not value.startswith("$") and not value.startswith("@"):
+                                        node_detail[f"arg_{key}_length"] = len(value)
+                                        node_detail[f"arg_{key}_chars"] = [c for c in value]
+                                        node_detail[f"arg_{key}_bytes"] = value.encode('utf-8').hex()
+
+                                debug_info["nodes"].append(node_detail)
+
+                        # If source session exists, compare with original recording
+                        if skill.draft and skill.draft.source_session_id:
+                            try:
+                                source_session = await self.storage.load_session(skill.draft.source_session_id)
+                                if source_session:
+                                    debug_info["source_session"] = {
+                                        "found": True,
+                                        "id": source_session.id,
+                                        "total_logs": len(source_session.logs),
+                                        "logs": []
+                                    }
+
+                                    # Compare recorded logs with skill nodes
+                                    for i, log in enumerate(source_session.logs):
+                                        debug_info["source_session"]["logs"].append({
+                                            "index": log.index,
+                                            "server": log.server,
+                                            "tool": log.tool,
+                                            "args": log.args,
+                                            "matches_node": i < len(skill.graph.nodes) and skill.graph.nodes[i].args_template == log.args
+                                        })
+                            except:
+                                debug_info["source_session"]["error"] = "Could not load source session"
+
+                except Exception as e:
+                    debug_info["error"] = str(e)
+                    import traceback
+                    debug_info["traceback"] = traceback.format_exc()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Skill Definition Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
+                )]
+
+            if tool_name == "debug_recording_session":
+                """Debug tool to inspect recording session details and diagnose text scrambling issues."""
+                import json
+
+                session_id = arguments["session_id"]
+
+                debug_info = {
+                    "session_id": session_id,
+                    "found": False,
+                    "logs": [],
+                    "summary": {},
+                }
+
+                try:
+                    # Try to load from active sessions first
+                    session = await self.recording_manager.get_active_session(session_id)
+
+                    # If not active, try to load from storage
+                    if not session:
+                        session = await self.storage.load_session(session_id)
+
+                    if session:
+                        debug_info["found"] = True
+                        debug_info["summary"] = {
+                            "started_at": session.started_at.isoformat() if session.started_at else None,
+                            "ended_at": session.ended_at.isoformat() if session.ended_at else None,
+                            "client_id": session.client_id,
+                            "workspace_id": session.workspace_id,
+                            "total_logs": len(session.logs),
+                            "metadata": session.metadata,
+                        }
+
+                        # Show each log with detailed argument inspection
+                        for log in session.logs:
+                            log_detail = {
+                                "index": log.index,
+                                "timestamp": log.timestamp.isoformat(),
+                                "server": log.server,
+                                "tool": log.tool,
+                                "args": log.args,  # Show exact recorded args
+                                "args_json": json.dumps(log.args, ensure_ascii=False),  # Show JSON representation
+                                "args_repr": repr(log.args),  # Show Python repr
+                                "status": log.status,
+                                "duration_ms": log.duration_ms,
+                                "error": log.error,
+                            }
+
+                            # For text arguments, show detailed character analysis
+                            for key, value in log.args.items():
+                                if isinstance(value, str) and len(value) > 0:
+                                    log_detail[f"arg_{key}_length"] = len(value)
+                                    log_detail[f"arg_{key}_chars"] = [c for c in value]
+                                    log_detail[f"arg_{key}_bytes"] = value.encode('utf-8').hex()
+
+                            debug_info["logs"].append(log_detail)
+                    else:
+                        debug_info["error"] = "Session not found"
+
+                except Exception as e:
+                    debug_info["error"] = str(e)
+                    import traceback
+                    debug_info["traceback"] = traceback.format_exc()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Recording Session Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
+                )]
+
             # Unknown tool name
             return [
                 TextContent(
@@ -795,6 +948,34 @@ class SkillFlowServer:
                     name="debug_skill_tools",
                     description="Debug tool to check skill tool registration status",
                     inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="debug_skill_definition",
+                    description="Debug tool to inspect skill definition and compare with source recording",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "skill_id": {
+                                "type": "string",
+                                "description": "ID of the skill to inspect",
+                            },
+                        },
+                        "required": ["skill_id"],
+                    },
+                ),
+                Tool(
+                    name="debug_recording_session",
+                    description="Debug tool to inspect recording session details and diagnose text scrambling issues",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "session_id": {
+                                "type": "string",
+                                "description": "ID of the recording session to inspect",
+                            },
+                        },
+                        "required": ["session_id"],
+                    },
                 ),
             ]
 
