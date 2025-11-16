@@ -4,6 +4,39 @@ All notable changes to Skillflow-MCP will be documented in this file.
 
 ## [Unreleased]
 
+### Changed - 2025-11-16 (Major Rewrite) 🚀
+
+- **原生 MCP 客户端实现** - 完全重写连接层！
+  - 🎯 **核心变化**：不再依赖官方 mcp SDK 的 stdio 客户端
+  - 🚀 **直接控制**：自行实现 JSON-RPC 2.0 协议和 subprocess 管理
+  - 📊 **流式解析**：实时解析 JSON-RPC 消息，buffer 处理不完整消息
+  - 🔄 **双向通信**：支持服务器请求（roots/list、sampling/createMessage）
+  - ⚡ **性能改进**：减少一层抽象，连接更快更稳定
+  - 🐛 **更好调试**：详细日志，准确显示在哪个阶段出错
+
+- **新增文件**：
+  - `src/skillflow/native_mcp_client.py` - 全新的原生 MCP 客户端
+  - 完整实现：subprocess 管理、JSON-RPC、MCP 协议、错误处理
+
+- **架构对比**：
+  ```
+  旧实现（SDK）:
+  Skillflow → mcp.ClientSession → mcp.stdio_client → subprocess
+                 ↑ 黑盒，不知道内部在做什么
+
+  新实现（原生）:
+  Skillflow → NativeMCPClient → subprocess + JSON-RPC
+                 ↑ 完全掌控，所有细节可见可调试
+  ```
+
+- **关键改进**：
+  - ✅ 启动超时检测（subprocess 启动 10 秒超时）
+  - ✅ 握手超时检测（MCP initialize 60 秒超时）
+  - ✅ 异步消息处理（独立的读取和错误流任务）
+  - ✅ 请求/响应匹配（通过 message_id）
+  - ✅ 完整资源清理（terminate → wait → kill）
+  - ✅ 双向通信支持（处理服务器的 roots/list 和 sampling 请求）
+
 ### Added - 2025-11-16
 
 - **上游工具代理功能** - 重大功能更新！

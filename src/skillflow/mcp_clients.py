@@ -1,17 +1,20 @@
-"""MCP client management for connecting to upstream servers."""
+"""MCP client management for connecting to upstream servers.
 
-import asyncio
+Now using native MCP client implementation for better control and reliability.
+"""
+
+import logging
 from typing import Any, Optional
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-
+from .native_mcp_client import NativeMCPClient, MCPClientError
 from .schemas import ServerConfig, ServerRegistry, TransportType
 from .storage import StorageLayer
 
+logger = logging.getLogger(__name__)
+
 
 class MCPClientManager:
-    """Manages connections to upstream MCP servers."""
+    """Manages connections to upstream MCP servers using native implementation."""
 
     def __init__(self, storage: StorageLayer):
         """Initialize MCP client manager.
@@ -20,28 +23,29 @@ class MCPClientManager:
             storage: Storage layer for server registry
         """
         self.storage = storage
-        self._clients: dict[str, ClientSession] = {}
-        self._client_contexts: dict[str, Any] = {}  # Store context managers
+        self._clients: dict[str, NativeMCPClient] = {}
         self._registry: Optional[ServerRegistry] = None
 
     async def initialize(self):
         """Initialize client manager and load registry."""
         self._registry = await self.storage.load_registry()
+        logger.info(f"Loaded registry with {len(self._registry.servers)} servers")
 
         # Note: We don't auto-connect to servers during initialization to avoid
         # timeout issues. Servers will be connected lazily when first used.
 
-    async def connect_server(self, server_id: str) -> ClientSession:
+    async def connect_server(self, server_id: str) -> NativeMCPClient:
         """Connect to an upstream MCP server.
 
         Args:
             server_id: ID of the server to connect
 
         Returns:
-            Client session
+            Native MCP client
 
         Raises:
             ValueError: If server not found in registry
+            MCPClientError: If connection fails
         """
         if not self._registry:
             self._registry = await self.storage.load_registry()
@@ -52,27 +56,33 @@ class MCPClientManager:
 
         # Check if already connected
         if server_id in self._clients:
-            return self._clients[server_id]
+            client = self._clients[server_id]
+            if client.status == "connected":
+                return client
+            else:
+                # Client exists but not connected, clean up and reconnect
+                logger.warning(f"Client {server_id} exists but not connected (status: {client.status}), reconnecting...")
+                await self.disconnect_server(server_id)
 
         # Create client based on transport type
         if config.transport == TransportType.STDIO:
-            session = await self._connect_stdio(config)
+            client = await self._connect_stdio(config)
         elif config.transport == TransportType.HTTP_SSE:
-            session = await self._connect_http_sse(config)
+            client = await self._connect_http_sse(config)
         else:
             raise ValueError(f"Unsupported transport: {config.transport}")
 
-        self._clients[server_id] = session
-        return session
+        self._clients[server_id] = client
+        return client
 
-    async def _connect_stdio(self, config: ServerConfig) -> ClientSession:
+    async def _connect_stdio(self, config: ServerConfig) -> NativeMCPClient:
         """Connect to a stdio-based MCP server.
 
         Args:
             config: Server configuration
 
         Returns:
-            Client session
+            Native MCP client
         """
         command = config.config.get("command")
         args = config.config.get("args", [])
@@ -81,79 +91,30 @@ class MCPClientManager:
         if not command:
             raise ValueError("stdio transport requires 'command' in config")
 
-        server_params = StdioServerParameters(
+        # Create native client
+        client = NativeMCPClient(
+            server_id=config.server_id,
             command=command,
             args=args,
             env=env,
+            timeout=60.0,  # 60 second default timeout
+            client_name="skillflow",
+            client_version="0.1.0",
         )
 
-        context = None
-        try:
-            # Create stdio client (stdio_client is an async context manager)
-            # We need to enter the context and keep it alive
-            context = stdio_client(server_params)
+        # Start and initialize
+        await client.start()
 
-            # Add timeout for subprocess start (10 seconds should be enough)
-            print(f"[MCPClient] Starting subprocess for {config.server_id}...")
-            try:
-                read, write = await asyncio.wait_for(
-                    context.__aenter__(),
-                    timeout=10.0
-                )
-                print(f"[MCPClient] Subprocess started for {config.server_id}")
-            except asyncio.TimeoutError:
-                print(f"[MCPClient] Timeout starting subprocess for {config.server_id}")
-                # Try to clean up the context
-                try:
-                    await context.__aexit__(None, None, None)
-                except:
-                    pass
-                raise TimeoutError(f"Failed to start subprocess for {config.server_id} within 10 seconds")
+        return client
 
-            # Store the context manager so we can properly exit it later
-            self._client_contexts[config.server_id] = context
-
-            # Create session
-            session = ClientSession(read, write)
-
-            # Add timeout for MCP handshake (30 seconds to account for slow startup)
-            print(f"[MCPClient] Performing MCP handshake for {config.server_id}...")
-            try:
-                await asyncio.wait_for(
-                    session.initialize(),
-                    timeout=30.0
-                )
-                print(f"[MCPClient] MCP handshake complete for {config.server_id}")
-            except asyncio.TimeoutError:
-                print(f"[MCPClient] Timeout during MCP handshake for {config.server_id}")
-                # Clean up the context since handshake failed
-                self._client_contexts.pop(config.server_id, None)
-                try:
-                    await context.__aexit__(None, None, None)
-                except:
-                    pass
-                raise TimeoutError(f"MCP handshake timeout for {config.server_id} after 30 seconds")
-
-            return session
-
-        except Exception as e:
-            # If anything fails, clean up the context
-            if context and config.server_id in self._client_contexts:
-                self._client_contexts.pop(config.server_id, None)
-                try:
-                    await context.__aexit__(None, None, None)
-                except:
-                    pass
-            raise
-
-    async def _connect_http_sse(self, config: ServerConfig) -> ClientSession:
+    async def _connect_http_sse(self, config: ServerConfig) -> NativeMCPClient:
         """Connect to an HTTP+SSE based MCP server.
 
         Args:
             config: Server configuration
 
         Returns:
-            Client session
+            Native MCP client
         """
         # This would use httpx-based client
         # For now, raise not implemented
@@ -165,26 +126,14 @@ class MCPClientManager:
         Args:
             server_id: ID of the server to disconnect
         """
-        session = self._clients.pop(server_id, None)
-        context = self._client_contexts.pop(server_id, None)
+        client = self._clients.pop(server_id, None)
 
-        if context:
-            # Properly exit the context manager to clean up stdio processes
+        if client:
             try:
-                await context.__aexit__(None, None, None)
+                await client.stop()
+                logger.info(f"Disconnected from {server_id}")
             except Exception as e:
-                # Log but ignore errors during cleanup
-                print(f"[MCPClient] Error cleaning up {server_id}: {e}")
-                # Context manager should have killed the subprocess, but be defensive
-                pass
-
-        # Also try to close the session if it exists
-        if session:
-            try:
-                # MCP ClientSession might have cleanup methods
-                pass  # Currently no explicit cleanup needed
-            except Exception as e:
-                print(f"[MCPClient] Error closing session for {server_id}: {e}")
+                logger.error(f"Error disconnecting from {server_id}: {e}")
 
     async def call_tool(
         self,
@@ -209,30 +158,17 @@ class MCPClientManager:
             # Local tool execution would be handled separately
             raise ValueError("Local tool execution not implemented")
 
-        session = self._clients.get(server_id)
-        if not session:
+        client = self._clients.get(server_id)
+        if not client or client.status != "connected":
             # Try to connect
-            session = await self.connect_server(server_id)
+            client = await self.connect_server(server_id)
 
         # Call tool
-        result = await session.call_tool(tool_name, arguments)
+        result = await client.call_tool(tool_name, arguments)
 
-        # Extract result content
-        if hasattr(result, 'content') and result.content:
-            # MCP returns CallToolResult with content array
-            content_items = []
-            for item in result.content:
-                if hasattr(item, 'text'):
-                    content_items.append(item.text)
-                elif hasattr(item, 'data'):
-                    content_items.append(item.data)
-
-            return {
-                "content": content_items,
-                "isError": getattr(result, 'isError', False),
-            }
-
-        return {"content": [str(result)]}
+        # Native client returns dict directly from MCP protocol
+        # Format: {'content': [...], 'isError': bool}
+        return result
 
     async def list_tools(self, server_id: str) -> list[dict]:
         """List available tools from a server.
@@ -243,22 +179,80 @@ class MCPClientManager:
         Returns:
             List of tool descriptors
         """
-        session = self._clients.get(server_id)
-        if not session:
-            session = await self.connect_server(server_id)
+        client = self._clients.get(server_id)
+        if not client or client.status != "connected":
+            client = await self.connect_server(server_id)
 
-        tools_result = await session.list_tools()
+        # Native client stores tools after initialization
+        return client.tools
 
-        # Convert to dict format
-        tools = []
-        for tool in tools_result.tools:
-            tools.append({
-                "name": tool.name,
-                "description": tool.description,
-                "inputSchema": tool.inputSchema,
-            })
+    async def list_prompts(self, server_id: str) -> list[dict]:
+        """List available prompts from a server.
 
-        return tools
+        Args:
+            server_id: ID of the server
+
+        Returns:
+            List of prompt descriptors
+        """
+        client = self._clients.get(server_id)
+        if not client or client.status != "connected":
+            client = await self.connect_server(server_id)
+
+        return client.prompts
+
+    async def get_prompt(
+        self,
+        server_id: str,
+        prompt_name: str,
+        arguments: Optional[dict] = None,
+    ) -> dict:
+        """Get a prompt from a server.
+
+        Args:
+            server_id: ID of the server
+            prompt_name: Prompt name
+            arguments: Prompt arguments
+
+        Returns:
+            Prompt result
+        """
+        client = self._clients.get(server_id)
+        if not client or client.status != "connected":
+            client = await self.connect_server(server_id)
+
+        return await client.get_prompt(prompt_name, arguments)
+
+    async def list_resources(self, server_id: str) -> list[dict]:
+        """List available resources from a server.
+
+        Args:
+            server_id: ID of the server
+
+        Returns:
+            List of resource descriptors
+        """
+        client = self._clients.get(server_id)
+        if not client or client.status != "connected":
+            client = await self.connect_server(server_id)
+
+        return client.resources
+
+    async def read_resource(self, server_id: str, uri: str) -> dict:
+        """Read a resource from a server.
+
+        Args:
+            server_id: ID of the server
+            uri: Resource URI
+
+        Returns:
+            Resource content
+        """
+        client = self._clients.get(server_id)
+        if not client or client.status != "connected":
+            client = await self.connect_server(server_id)
+
+        return await client.read_resource(uri)
 
     async def register_server(
         self,
@@ -288,6 +282,7 @@ class MCPClientManager:
 
         self._registry.servers[server_id] = server_config
         await self.storage.save_registry(self._registry)
+        logger.info(f"Registered server: {server_id}")
 
     async def unregister_server(self, server_id: str) -> None:
         """Unregister a server.
@@ -304,6 +299,7 @@ class MCPClientManager:
         # Remove from registry
         self._registry.servers.pop(server_id, None)
         await self.storage.save_registry(self._registry)
+        logger.info(f"Unregistered server: {server_id}")
 
     async def list_servers(self) -> list[ServerConfig]:
         """List all registered servers.
@@ -318,5 +314,6 @@ class MCPClientManager:
 
     async def close_all(self):
         """Close all client connections."""
+        logger.info(f"Closing {len(self._clients)} client connections")
         for server_id in list(self._clients.keys()):
             await self.disconnect_server(server_id)
