@@ -1,6 +1,7 @@
 """SkillFlow MCP Server implementation."""
 
 import asyncio
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -22,6 +23,7 @@ from .schemas import (
 )
 from .skills import SkillManager
 from .storage import StorageLayer
+from .tool_naming import generate_proxy_tool_name, parse_proxy_tool_name
 
 
 class SkillFlowServer:
@@ -47,6 +49,10 @@ class SkillFlowServer:
 
         # Track active recording session
         self.active_recording_session: Optional[str] = None
+
+        # Mapping from hash to server_id for proxy tools
+        # When using compact hash format (up_<hash>_toolname), we need to resolve hash back to server_id
+        self._hash_to_server_id: dict[str, str] = {}
 
         # Register tools
         self._register_tools()
@@ -120,6 +126,27 @@ class SkillFlowServer:
         @self.server.call_tool()
         async def handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> list[TextContent]:
             """Handle all tool calls dispatched by name."""
+
+            # ========== Skill Tools (Dynamic) ==========
+            if tool_name.startswith("skill__"):
+                # Extract skill ID from tool name
+                skill_id = tool_name[7:]  # Remove "skill__" prefix
+
+                try:
+                    # Load and execute the skill
+                    skill = await self.skill_manager.get_skill(skill_id)
+                    result = await self.engine.run_skill(skill, arguments)
+
+                    import json
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(result.model_dump(mode="json"), indent=2),
+                    )]
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"Error executing skill '{skill_id}': {str(e)}",
+                    )]
 
             # ========== Upstream Server Tools (Proxied) ==========
             server_id, actual_tool_name = self._parse_upstream_tool_name(tool_name)
@@ -229,10 +256,19 @@ class SkillFlowServer:
 
                 await self._register_skill_tools()
 
+                # Note: MCP servers cannot proactively notify clients of tool list changes
+                # Some clients (like Fount) cache the tool list and need manual refresh
                 return [
                     TextContent(
                         type="text",
-                        text=f"Skill created: {skill.id} (v{skill.version})",
+                        text=(
+                            f"✅ Skill created: {skill.id} (v{skill.version})\n"
+                            f"Tool name: skill__{skill.id}\n\n"
+                            f"⚠️ Note: If the tool doesn't appear in your client, try:\n"
+                            f"  1. Refresh the client's tool list\n"
+                            f"  2. Or call it directly: skill__{skill.id}\n"
+                            f"  3. Or restart the client if refresh doesn't work"
+                        ),
                     )
                 ]
 
@@ -358,9 +394,11 @@ class SkillFlowServer:
             if tool_name == "debug_upstream_tools":
                 """Debug tool to check upstream tool proxy status."""
                 import json
+                import traceback
 
                 debug_info = {
                     "registered_servers": [],
+                    "connection_tests": {},
                     "proxy_tools": [],
                     "errors": []
                 }
@@ -372,8 +410,52 @@ class SkillFlowServer:
                         debug_info["registered_servers"].append({
                             "id": server.server_id,
                             "name": server.name,
-                            "enabled": server.enabled
+                            "enabled": server.enabled,
+                            "transport": server.transport.value,
+                            "command": server.config.get("command", "N/A")
                         })
+
+                        # Test connection to each server
+                        if server.enabled:
+                            try:
+                                print(f"[Debug] Testing connection to {server.server_id}...")
+
+                                try:
+                                    tools = await asyncio.wait_for(
+                                        self.mcp_clients.list_tools(server.server_id),
+                                        timeout=30.0
+                                    )
+
+                                    debug_info["connection_tests"][server.server_id] = {
+                                        "status": "success",
+                                        "tools_count": len(tools),
+                                        "sample_tools": [t["name"] for t in tools[:3]]
+                                    }
+
+                                except asyncio.TimeoutError:
+                                    # Clean up partial connection to avoid resource leak
+                                    print(f"[Debug] Timeout on {server.server_id}, cleaning up...")
+                                    await self.mcp_clients.disconnect_server(server.server_id)
+
+                                    debug_info["connection_tests"][server.server_id] = {
+                                        "status": "timeout",
+                                        "error": "Connection timed out after 30 seconds (cleaned up)"
+                                    }
+
+                            except Exception as e:
+                                # CRITICAL: Clean up connection on ANY error to prevent process leak
+                                print(f"[Debug] Error on {server.server_id}, cleaning up...")
+                                try:
+                                    await self.mcp_clients.disconnect_server(server.server_id)
+                                except:
+                                    pass  # Ignore cleanup errors
+
+                                debug_info["connection_tests"][server.server_id] = {
+                                    "status": "error",
+                                    "error": str(e),
+                                    "error_type": type(e).__name__,
+                                    "traceback": traceback.format_exc()
+                                }
 
                     # Try to get upstream tools
                     upstream_tools = await self._get_upstream_tools()
@@ -384,11 +466,66 @@ class SkillFlowServer:
                         })
 
                 except Exception as e:
-                    debug_info["errors"].append(str(e))
+                    debug_info["errors"].append({
+                        "error": str(e),
+                        "type": type(e).__name__,
+                        "traceback": traceback.format_exc()
+                    })
 
                 return [TextContent(
                     type="text",
-                    text=f"Debug Info:\n{json.dumps(debug_info, indent=2)}"
+                    text=f"Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
+                )]
+
+            if tool_name == "debug_skill_tools":
+                """Debug tool to check skill tool registration status."""
+                import json
+
+                debug_info = {
+                    "skills": [],
+                    "skill_tools": [],
+                    "total_skills": 0,
+                }
+
+                try:
+                    # Get all skills
+                    skills = await self.skill_manager.list_skills()
+                    debug_info["total_skills"] = len(skills)
+
+                    for skill_meta in skills:
+                        try:
+                            skill = await self.skill_manager.get_skill(skill_meta.id)
+                            debug_info["skills"].append({
+                                "id": skill.id,
+                                "name": skill.name,
+                                "version": skill.version,
+                                "description": skill.description,
+                                "tool_name": f"skill__{skill.id}",
+                            })
+                        except Exception as e:
+                            debug_info["skills"].append({
+                                "id": skill_meta.id,
+                                "error": str(e),
+                            })
+
+                    # Get skill tools as they would appear in list_tools
+                    skill_tools_data = await self.skill_manager.list_as_mcp_tools()
+                    debug_info["skill_tools"] = [
+                        {
+                            "name": t["name"],
+                            "description": t.get("description", "")[:60] + "...",
+                        }
+                        for t in skill_tools_data
+                    ]
+
+                except Exception as e:
+                    debug_info["error"] = str(e)
+                    import traceback
+                    debug_info["traceback"] = traceback.format_exc()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Skill Tools Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
                 )]
 
             # Unknown tool name
@@ -400,36 +537,15 @@ class SkillFlowServer:
             ]
 
     async def _register_skill_tools(self):
-        """Dynamically register tools for all skills."""
-        skills = await self.skill_manager.list_skills()
+        """Register skill tools (now handled dynamically in handle_tool_call).
 
-        for skill_meta in skills:
-            try:
-                skill = await self.skill_manager.get_skill(skill_meta.id)
-
-                # Create tool descriptor
-                tool_name = f"skill__{skill.id}"
-
-                # Define tool handler
-                async def skill_handler(**inputs) -> list[TextContent]:
-                    """Execute the skill."""
-                    # Capture skill in closure
-                    current_skill = skill
-
-                    result = await self.engine.run_skill(current_skill, inputs)
-
-                    import json
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps(result.model_dump(mode="json"), indent=2),
-                    )]
-
-                # Register tool
-                # Note: This is a simplified approach; in production, use proper dynamic registration
-                # For now, we'll rely on list_tools to expose skills
-
-            except Exception as e:
-                print(f"Error registering skill {skill_meta.id}: {e}")
+        This method is kept for backward compatibility but no longer performs
+        pre-registration. Skill tools are now loaded and executed on-demand,
+        allowing new skills to be callable immediately without server restart.
+        """
+        # Skills are now handled dynamically in handle_tool_call
+        # No pre-registration needed
+        pass
 
     async def _get_upstream_tools(self) -> list[Tool]:
         """Get all tools from upstream servers and create proxy tools.
@@ -452,16 +568,41 @@ class SkillFlowServer:
                     # Use asyncio.wait_for to prevent hanging on slow/unresponsive servers
                     print(f"[Skillflow] Fetching tools from {server_config.server_id}...")
 
-                    tools = await asyncio.wait_for(
-                        self.mcp_clients.list_tools(server_config.server_id),
-                        timeout=10.0  # Increased to 10 seconds per server
-                    )
+                    try:
+                        tools = await asyncio.wait_for(
+                            self.mcp_clients.list_tools(server_config.server_id),
+                            timeout=30.0  # Increased to 30 seconds for slow Windows servers
+                        )
+                    except asyncio.TimeoutError:
+                        # CRITICAL: Clean up partial connection on timeout to avoid resource leak
+                        error_msg = f"Timeout connecting to {server_config.server_id}"
+                        print(f"[Skillflow] {error_msg} - cleaning up partial connection...")
+
+                        # Disconnect to clean up any partial connections and kill orphaned processes
+                        await self.mcp_clients.disconnect_server(server_config.server_id)
+
+                        errors.append(error_msg)
+                        continue  # Skip to next server
 
                     print(f"[Skillflow] Found {len(tools)} tools from {server_config.server_id}")
 
-                    # Create proxy tools with prefixed names
+                    # Create proxy tools with compact naming
+                    # Max 47 chars to account for Fount's 13-char prefix (mcp_skillflow_)
+                    # Total: 13 + 47 = 60 chars
                     for tool_dict in tools:
-                        proxy_tool_name = f"upstream__{server_config.server_id}__{tool_dict['name']}"
+                        original_tool_name = tool_dict['name']
+                        proxy_tool_name = generate_proxy_tool_name(
+                            server_config.server_id,
+                            original_tool_name,
+                            max_length=47  # Reserve space for client prefix
+                        )
+
+                        # Store hash mapping if using hash format
+                        # Parse to check if it's a hash format (up_<hash>_toolname)
+                        server_part, tool_part = parse_proxy_tool_name(proxy_tool_name)
+                        if server_part and len(server_part) <= 8 and all(c in '0123456789abcdef' for c in server_part):
+                            # It's a hash, store the mapping
+                            self._hash_to_server_id[server_part] = server_config.server_id
 
                         # Add server info to description
                         description = tool_dict.get('description', '')
@@ -474,10 +615,6 @@ class SkillFlowServer:
                         )
                         upstream_tools.append(proxy_tool)
 
-                except asyncio.TimeoutError:
-                    error_msg = f"Timeout connecting to {server_config.server_id}"
-                    print(f"[Skillflow] {error_msg}")
-                    errors.append(error_msg)
                 except Exception as e:
                     error_msg = f"Error from {server_config.server_id}: {str(e)}"
                     print(f"[Skillflow] {error_msg}")
@@ -499,19 +636,30 @@ class SkillFlowServer:
         """Parse upstream tool name to extract server_id and actual tool name.
 
         Args:
-            tool_name: Tool name in format "upstream__<server_id>__<tool_name>"
+            tool_name: Tool name in format:
+                - "up_<server_id>_<tool_name>" (compact)
+                - "up_<hash>_<tool_name>" (hash)
+                - "upstream__<server_id>__<tool_name>" (legacy, deprecated)
 
         Returns:
             Tuple of (server_id, actual_tool_name) or (None, None) if not an upstream tool
         """
-        if not tool_name.startswith("upstream__"):
+        server_part, tool_part = parse_proxy_tool_name(tool_name)
+
+        if not server_part or not tool_part:
             return None, None
 
-        parts = tool_name.split("__", 2)
-        if len(parts) != 3:
-            return None, None
+        # If server_part looks like a hash (4-8 hex chars), resolve to actual server_id
+        if len(server_part) <= 8 and all(c in '0123456789abcdef' for c in server_part):
+            # It's a hash, look up the actual server_id
+            server_id = self._hash_to_server_id.get(server_part)
+            if not server_id:
+                print(f"[Skillflow] Warning: Hash {server_part} not found in mapping")
+                return None, None
+            return server_id, tool_part
 
-        return parts[1], parts[2]
+        # It's a full server_id
+        return server_part, tool_part
 
     def _setup_list_tools(self):
         """Setup the list_tools handler."""
@@ -641,6 +789,11 @@ class SkillFlowServer:
                 Tool(
                     name="debug_upstream_tools",
                     description="Debug tool to check if upstream tools are being proxied correctly",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="debug_skill_tools",
+                    description="Debug tool to check skill tool registration status",
                     inputSchema={"type": "object", "properties": {}},
                 ),
             ]
