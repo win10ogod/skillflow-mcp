@@ -232,14 +232,31 @@
             document.getElementById('throughput').textContent =
                 Math.round(metrics.throughput?.latest || 0);
 
-            // Update charts
+            // Update execution time chart
             if (executionTimeChart) {
                 executionTimeChart.data.datasets[0].data = [
                     metrics.execution_time?.p50 || 0,
                     metrics.execution_time?.p95 || 0,
                     metrics.execution_time?.p99 || 0
                 ];
-                executionTimeChart.update();
+                executionTimeChart.update('none'); // Disable animations
+            }
+
+            // Update throughput chart (keep last 30 points)
+            if (throughputChart) {
+                const now = new Date().toLocaleTimeString();
+                throughputChart.data.labels.push(now);
+                throughputChart.data.datasets[0].data.push(
+                    Math.round(metrics.throughput?.latest || 0)
+                );
+
+                // Keep only last 30 data points
+                if (throughputChart.data.labels.length > 30) {
+                    throughputChart.data.labels.shift();
+                    throughputChart.data.datasets[0].data.shift();
+                }
+
+                throughputChart.update('none'); // Disable animations
             }
         }
 
