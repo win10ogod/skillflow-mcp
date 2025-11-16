@@ -53,6 +53,11 @@ All notable changes to Skillflow-MCP will be documented in this file.
     - 使用 try-except 确保清理不会失败
     - 防止孤立进程累积
 
+- **改进技能元数据管理**：
+  - 技能创建时自动保存 `source_session_id` 到 metadata
+  - 允许追溯技能来源的录制会话
+  - 便于调试和诊断技能相关问题
+
 - **新增调试工具**：
   - `debug_skill_tools` - 检查技能工具注册状态
     - 列出所有技能及其对应的工具名
@@ -62,10 +67,10 @@ All notable changes to Skillflow-MCP will be documented in this file.
     - 显示会话中每个工具调用的详细参数
     - 对文本参数进行字符级分析（字符列表、字节表示）
     - 帮助识别文本是否在录制阶段就已损坏
-  - `debug_skill_definition` - 检查技能定义并与源录制对比
+  - `debug_skill_definition` - 检查技能定义
     - 显示技能图中每个节点的参数模板
     - 对文本参数进行字符级分析
-    - 对比技能定义与源录制，检查是否一致
+    - 显示技能的 metadata（包含 source_session_id）
     - 帮助识别文本是否在技能创建阶段损坏
 
 - **新增文件**：

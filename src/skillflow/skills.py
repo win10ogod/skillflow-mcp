@@ -109,6 +109,11 @@ class SkillManager:
         """
         now = datetime.utcnow()
 
+        # Prepare metadata - include source_session_id if available
+        metadata = {}
+        if draft.source_session_id:
+            metadata["source_session_id"] = draft.source_session_id
+
         skill = Skill(
             id=skill_id,
             name=name,
@@ -121,6 +126,7 @@ class SkillManager:
             inputs_schema=draft.inputs_schema,
             output_schema=draft.output_schema,
             graph=draft.graph,
+            metadata=metadata,
         )
 
         await self.storage.save_skill(skill)

@@ -548,13 +548,18 @@ class SkillFlowServer:
 
                     if skill:
                         debug_info["found"] = True
+
+                        # Check metadata for source_session_id
+                        source_session_id = skill.metadata.get("source_session_id")
+
                         debug_info["skill"] = {
                             "id": skill.id,
                             "name": skill.name,
                             "version": skill.version,
                             "description": skill.description,
                             "tags": skill.tags,
-                            "source_session_id": skill.draft.source_session_id if skill.draft else None,
+                            "metadata": skill.metadata,
+                            "source_session_id": source_session_id,
                         }
 
                         # Inspect each node in the graph
@@ -578,30 +583,6 @@ class SkillFlowServer:
                                         node_detail[f"arg_{key}_bytes"] = value.encode('utf-8').hex()
 
                                 debug_info["nodes"].append(node_detail)
-
-                        # If source session exists, compare with original recording
-                        if skill.draft and skill.draft.source_session_id:
-                            try:
-                                source_session = await self.storage.load_session(skill.draft.source_session_id)
-                                if source_session:
-                                    debug_info["source_session"] = {
-                                        "found": True,
-                                        "id": source_session.id,
-                                        "total_logs": len(source_session.logs),
-                                        "logs": []
-                                    }
-
-                                    # Compare recorded logs with skill nodes
-                                    for i, log in enumerate(source_session.logs):
-                                        debug_info["source_session"]["logs"].append({
-                                            "index": log.index,
-                                            "server": log.server,
-                                            "tool": log.tool,
-                                            "args": log.args,
-                                            "matches_node": i < len(skill.graph.nodes) and skill.graph.nodes[i].args_template == log.args
-                                        })
-                            except:
-                                debug_info["source_session"]["error"] = "Could not load source session"
 
                 except Exception as e:
                     debug_info["error"] = str(e)
