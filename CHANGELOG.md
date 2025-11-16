@@ -4,6 +4,73 @@ All notable changes to Skillflow-MCP will be documented in this file.
 
 ## [Unreleased]
 
+### Added - 2025-11-16 (New Features) ✨
+
+- **支持技能并发执行模式** 🚀
+  - 🎯 **功能**：允许在创建技能时配置执行模式，支持顺序、分阶段、完全并行三种模式
+  - ✅ **执行模式**：
+    - `sequential` (顺序) - 默认模式，节点按拓扑顺序一个接一个执行
+    - `phased` (分阶段) - 定义执行阶段，每个阶段内的节点并行执行
+    - `full_parallel` (完全并行) - 在依赖关系允许的情况下最大化并行执行
+  - 📦 **配置参数**：
+    - `concurrency_mode`: 选择执行模式
+    - `concurrency_phases`: 分阶段模式的阶段定义 (例如: `{"phase1": ["step_1", "step_2"]}`)
+    - `max_parallel`: 限制最大并行任务数量
+  - 🌟 **使用场景**：
+    - 顺序执行：适合有明确依赖的步骤（如：获取数据 → 处理 → 保存）
+    - 分阶段：适合批量操作（如：同时截图多个窗口，然后统一处理）
+    - 完全并行：适合独立任务（如：同时调用多个 API 获取数据）
+  - 💡 **示例**：
+    ```python
+    # 创建完全并行执行的技能
+    create_skill_from_session({
+      "session_id": "...",
+      "skill_id": "parallel_fetch",
+      "name": "Parallel Data Fetch",
+      "description": "Fetch data from multiple sources in parallel",
+      "concurrency_mode": "full_parallel",
+      "max_parallel": 5  # 最多同时执行 5 个任务
+    })
+    ```
+
+- **支持上游 MCP 服务器的 Resources 和 Prompts** 📚
+  - 🎯 **功能**：完整支持 MCP 协议的 Resources 和 Prompts，允许访问上游服务器的资源和提示词
+  - ✅ **新增工具**：
+    - `list_upstream_resources` - 列出上游服务器的所有资源
+    - `read_upstream_resource` - 读取指定 URI 的资源内容
+    - `list_upstream_prompts` - 列出上游服务器的所有提示词
+    - `get_upstream_prompt` - 获取指定提示词及其内容
+  - 📦 **MCP Resources**：
+    - 访问上游服务器暴露的文件、数据、文档等资源
+    - 支持任何符合 MCP 协议的资源类型
+    - 返回完整的资源内容和元数据
+  - 📦 **MCP Prompts**：
+    - 访问上游服务器定义的提示词模板
+    - 支持参数化提示词（传递 arguments）
+    - 获取结构化的提示词内容
+  - 🌟 **使用场景**：
+    - 读取上游服务器的配置文件、日志文件
+    - 访问文档、API 规范等资源
+    - 使用上游服务器提供的预定义提示词模板
+  - 💡 **示例**：
+    ```python
+    # 列出资源
+    list_upstream_resources({"server_id": "file-server"})
+
+    # 读取资源
+    read_upstream_resource({
+      "server_id": "file-server",
+      "uri": "file:///path/to/config.json"
+    })
+
+    # 获取提示词
+    get_upstream_prompt({
+      "server_id": "prompt-server",
+      "prompt_name": "code_review",
+      "arguments": {"language": "python"}
+    })
+    ```
+
 ### Fixed - 2025-11-16 (Compatibility Fix) 🔧
 
 - **修复 Fount 客户端的 60 字符限制问题**

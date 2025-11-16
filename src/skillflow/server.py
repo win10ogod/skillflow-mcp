@@ -270,6 +270,11 @@ class SkillFlowServer:
                 tags = arguments.get("tags") or []
                 expose_params = arguments.get("expose_params") or []
 
+                # NEW: Support concurrency mode configuration
+                concurrency_mode = arguments.get("concurrency_mode", "sequential")
+                concurrency_phases = arguments.get("concurrency_phases")  # For phased mode
+                max_parallel = arguments.get("max_parallel")  # For limiting parallelism
+
                 params = []
                 for p in expose_params:
                     params.append(
@@ -288,6 +293,9 @@ class SkillFlowServer:
                     description=description,
                     expose_params=params,
                     tags=tags,
+                    concurrency_mode=concurrency_mode,
+                    concurrency_phases=concurrency_phases,
+                    max_parallel=max_parallel,
                 )
 
                 author = SkillAuthor(
@@ -439,6 +447,93 @@ class SkillFlowServer:
                     )
 
                 return [TextContent(type="text", text="\n".join(lines))]
+
+            # ========== MCP Resources ==========
+            if tool_name == "list_upstream_resources":
+                """List all resources from an upstream MCP server."""
+                import json
+                server_id = arguments["server_id"]
+
+                try:
+                    resources = await self.mcp_clients.list_resources(server_id)
+
+                    if not resources:
+                        return [TextContent(type="text", text=f"No resources available from {server_id}")]
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "server_id": server_id,
+                            "resources": resources,
+                            "count": len(resources),
+                        }, indent=2, ensure_ascii=False)
+                    )]
+                except Exception as e:
+                    return [TextContent(type="text", text=f"Error listing resources from {server_id}: {str(e)}")]
+
+            if tool_name == "read_upstream_resource":
+                """Read a resource from an upstream MCP server."""
+                import json
+                server_id = arguments["server_id"]
+                uri = arguments["uri"]
+
+                try:
+                    resource_content = await self.mcp_clients.read_resource(server_id, uri)
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "server_id": server_id,
+                            "uri": uri,
+                            "content": resource_content,
+                        }, indent=2, ensure_ascii=False)
+                    )]
+                except Exception as e:
+                    return [TextContent(type="text", text=f"Error reading resource {uri} from {server_id}: {str(e)}")]
+
+            # ========== MCP Prompts ==========
+            if tool_name == "list_upstream_prompts":
+                """List all prompts from an upstream MCP server."""
+                import json
+                server_id = arguments["server_id"]
+
+                try:
+                    prompts = await self.mcp_clients.list_prompts(server_id)
+
+                    if not prompts:
+                        return [TextContent(type="text", text=f"No prompts available from {server_id}")]
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "server_id": server_id,
+                            "prompts": prompts,
+                            "count": len(prompts),
+                        }, indent=2, ensure_ascii=False)
+                    )]
+                except Exception as e:
+                    return [TextContent(type="text", text=f"Error listing prompts from {server_id}: {str(e)}")]
+
+            if tool_name == "get_upstream_prompt":
+                """Get a prompt from an upstream MCP server."""
+                import json
+                server_id = arguments["server_id"]
+                prompt_name = arguments["prompt_name"]
+                prompt_arguments = arguments.get("arguments", {})
+
+                try:
+                    prompt = await self.mcp_clients.get_prompt(server_id, prompt_name, prompt_arguments)
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "server_id": server_id,
+                            "prompt_name": prompt_name,
+                            "prompt": prompt,
+                        }, indent=2, ensure_ascii=False)
+                    )]
+                except Exception as e:
+                    return [TextContent(type="text", text=f"Error getting prompt {prompt_name} from {server_id}: {str(e)}")]
 
             if tool_name == "debug_upstream_tools":
                 """Debug tool to check upstream tool proxy status."""
@@ -933,7 +1028,7 @@ class SkillFlowServer:
                 ),
                 Tool(
                     name="create_skill_from_session",
-                    description="Create a skill from a recording session",
+                    description="Create a skill from a recording session with configurable concurrency",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -945,6 +1040,20 @@ class SkillFlowServer:
                             "expose_params": {
                                 "type": "array",
                                 "items": {"type": "object"},
+                            },
+                            "concurrency_mode": {
+                                "type": "string",
+                                "enum": ["sequential", "phased", "full_parallel"],
+                                "description": "Execution mode: sequential (default, one-by-one), phased (groups run in parallel), or full_parallel (maximum parallelism)",
+                                "default": "sequential",
+                            },
+                            "concurrency_phases": {
+                                "type": "object",
+                                "description": "For phased mode: mapping of phase_id to list of node_ids. Example: {'phase1': ['step_1', 'step_2'], 'phase2': ['step_3']}",
+                            },
+                            "max_parallel": {
+                                "type": "integer",
+                                "description": "Maximum number of parallel tasks (optional, applies to parallel modes)",
                             },
                         },
                         "required": ["session_id", "skill_id", "name", "description"],
@@ -1025,6 +1134,74 @@ class SkillFlowServer:
                     name="list_upstream_servers",
                     description="List all registered upstream servers",
                     inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="list_upstream_resources",
+                    description="List all resources from an upstream MCP server",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "ID of the upstream server",
+                            },
+                        },
+                        "required": ["server_id"],
+                    },
+                ),
+                Tool(
+                    name="read_upstream_resource",
+                    description="Read a resource from an upstream MCP server",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "ID of the upstream server",
+                            },
+                            "uri": {
+                                "type": "string",
+                                "description": "URI of the resource to read",
+                            },
+                        },
+                        "required": ["server_id", "uri"],
+                    },
+                ),
+                Tool(
+                    name="list_upstream_prompts",
+                    description="List all prompts from an upstream MCP server",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "ID of the upstream server",
+                            },
+                        },
+                        "required": ["server_id"],
+                    },
+                ),
+                Tool(
+                    name="get_upstream_prompt",
+                    description="Get a prompt from an upstream MCP server",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "ID of the upstream server",
+                            },
+                            "prompt_name": {
+                                "type": "string",
+                                "description": "Name of the prompt to get",
+                            },
+                            "arguments": {
+                                "type": "object",
+                                "description": "Arguments to pass to the prompt (optional)",
+                            },
+                        },
+                        "required": ["server_id", "prompt_name"],
+                    },
                 ),
                 Tool(
                     name="debug_upstream_tools",
