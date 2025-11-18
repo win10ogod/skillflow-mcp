@@ -27,6 +27,7 @@ from .skills import SkillManager
 from .storage import StorageLayer
 from .tool_naming import generate_proxy_tool_name, parse_proxy_tool_name
 from .upstream_tool_cache import UpstreamToolCache
+from .file_watcher import FileWatcher
 
 
 class SkillFlowServer:
@@ -66,6 +67,15 @@ class SkillFlowServer:
         # Cache tools for 5 minutes to reduce repeated network requests
         self._upstream_tool_cache = UpstreamToolCache(ttl_seconds=300)
 
+        # File watcher for hot-reload
+        self._file_watcher = FileWatcher(
+            watch_dir=self.storage.skills_dir,
+            on_skill_changed=self._on_skill_changed,
+            on_skill_created=self._on_skill_created,
+            on_skill_deleted=self._on_skill_deleted,
+            poll_interval=2.0  # Check every 2 seconds
+        )
+
         # Register tools
         self._register_tools()
         self._setup_list_tools()
@@ -80,15 +90,92 @@ class SkillFlowServer:
         # Start metrics collection
         await self.metrics.start()
 
+        # Start file watcher for hot-reload
+        await self._file_watcher.start()
+        print("[Skillflow] File watcher started - skills will auto-reload on changes")
+
         # Log server start event
         self.audit.log_event(
             AuditEventType.SERVER_STARTED,
-            "SkillFlow MCP server started",
+            "SkillFlow MCP server started with hot-reload enabled",
             severity=AuditEventSeverity.INFO
         )
 
         # Register dynamic skill tools
         await self._register_skill_tools()
+
+    async def shutdown(self):
+        """Shutdown server and cleanup resources."""
+        # Stop file watcher
+        await self._file_watcher.stop()
+        print("[Skillflow] File watcher stopped")
+
+        # Stop metrics collection
+        await self.metrics.stop()
+
+        # Log server stop event
+        self.audit.log_event(
+            AuditEventType.SERVER_STOPPED,
+            "SkillFlow MCP server stopped",
+            severity=AuditEventSeverity.INFO
+        )
+
+    def _on_skill_changed(self, skill_id: str):
+        """Callback when a skill is modified.
+
+        Args:
+            skill_id: ID of the modified skill
+        """
+        print(f"[Skillflow] Skill modified: {skill_id} - invalidating cache")
+
+        # Invalidate cache for this skill
+        asyncio.create_task(self.storage.invalidate_skill_cache(skill_id))
+
+        # Log event
+        self.audit.log_event(
+            AuditEventType.SKILL_MODIFIED,
+            f"Skill {skill_id} modified and cache invalidated",
+            severity=AuditEventSeverity.INFO,
+            skill_id=skill_id
+        )
+
+    def _on_skill_created(self, skill_id: str):
+        """Callback when a skill is created.
+
+        Args:
+            skill_id: ID of the created skill
+        """
+        print(f"[Skillflow] New skill detected: {skill_id} - clearing tool list cache")
+
+        # Invalidate entire cache to include new skill
+        asyncio.create_task(self.storage.invalidate_skill_cache())
+
+        # Log event
+        self.audit.log_event(
+            AuditEventType.SKILL_CREATED,
+            f"Skill {skill_id} created and detected by file watcher",
+            severity=AuditEventSeverity.INFO,
+            skill_id=skill_id
+        )
+
+    def _on_skill_deleted(self, skill_id: str):
+        """Callback when a skill is deleted.
+
+        Args:
+            skill_id: ID of the deleted skill
+        """
+        print(f"[Skillflow] Skill deleted: {skill_id} - removing from cache")
+
+        # Invalidate cache for this skill
+        asyncio.create_task(self.storage.invalidate_skill_cache(skill_id))
+
+        # Log event
+        self.audit.log_event(
+            AuditEventType.SKILL_DELETED,
+            f"Skill {skill_id} deleted and removed from cache",
+            severity=AuditEventSeverity.INFO,
+            skill_id=skill_id
+        )
 
     async def _execute_tool(
         self,
@@ -1025,6 +1112,59 @@ class SkillFlowServer:
                         text=f"Refreshed {len(upstream_tools)} tools from all upstream servers"
                     )]
 
+            # ========== Skill Cache Management Tools ==========
+            if tool_name == "get_skill_cache_stats":
+                """Get skill cache statistics."""
+                import json
+
+                stats = await self.storage.get_cache_stats()
+
+                if stats is None:
+                    return [TextContent(type="text", text="Skill caching is disabled")]
+
+                return [TextContent(
+                    type="text",
+                    text=f"Skill Cache Statistics:\n{json.dumps(stats, indent=2, ensure_ascii=False)}"
+                )]
+
+            if tool_name == "invalidate_skill_cache":
+                """Invalidate skill cache."""
+                skill_id = arguments.get("skill_id")
+
+                await self.storage.invalidate_skill_cache(skill_id)
+
+                if skill_id:
+                    message = f"Skill cache invalidated for: {skill_id}"
+                else:
+                    message = "All skill caches invalidated"
+
+                return [TextContent(type="text", text=message)]
+
+            if tool_name == "force_skill_reload":
+                """Force reload of skills from disk."""
+                # Clear all caches
+                await self.storage.invalidate_skill_cache()
+
+                # Rebuild skill index
+                await self.storage._rebuild_skill_index()
+
+                # Get skill count
+                skills = await self.storage.list_skills()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Skills reloaded from disk. Total: {len(skills)} skills"
+                )]
+
+            if tool_name == "trigger_hot_reload":
+                """Manually trigger hot-reload check."""
+                await self._file_watcher.trigger_manual_scan()
+
+                return [TextContent(
+                    type="text",
+                    text="Hot-reload check triggered. Any changes will be detected and caches invalidated."
+                )]
+
             # Unknown tool name
             return [
                 TextContent(
@@ -1521,6 +1661,35 @@ class SkillFlowServer:
                             },
                         },
                     },
+                ),
+                # Skill cache management tools
+                Tool(
+                    name="get_skill_cache_stats",
+                    description="Get skill cache statistics (hit rate, cached skills, tool list cache)",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="invalidate_skill_cache",
+                    description="Invalidate skill cache for a specific skill or all skills",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "skill_id": {
+                                "type": "string",
+                                "description": "Skill ID to invalidate (omit to clear all)",
+                            },
+                        },
+                    },
+                ),
+                Tool(
+                    name="force_skill_reload",
+                    description="Force reload of skills from disk and clear all caches",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="trigger_hot_reload",
+                    description="Manually trigger hot-reload check (useful for immediate reload without waiting for poll interval)",
+                    inputSchema={"type": "object", "properties": {}},
                 ),
             ]
 
