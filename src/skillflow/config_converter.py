@@ -117,7 +117,9 @@ def convert_claude_code_to_skillflow(
         env = server_config.get("env")
 
         if not command:
-            print(f"Warning: Server '{server_id}' has no command, skipping")
+            # Skip servers without command (log to stderr, not stdout)
+            import logging
+            logging.getLogger(__name__).warning(f"Server '{server_id}' has no command, skipping")
             continue
 
         # Detect transport type from command/args
