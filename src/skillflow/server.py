@@ -26,6 +26,8 @@ from .schemas import (
 from .skills import SkillManager
 from .storage import StorageLayer
 from .tool_naming import generate_proxy_tool_name, parse_proxy_tool_name
+from .upstream_tool_cache import UpstreamToolCache
+from .file_watcher import FileWatcher
 
 
 class SkillFlowServer:
@@ -61,6 +63,19 @@ class SkillFlowServer:
         # When using compact hash format (up_<hash>_toolname), we need to resolve hash back to server_id
         self._hash_to_server_id: dict[str, str] = {}
 
+        # Upstream tool cache for performance optimization
+        # Cache tools for 5 minutes to reduce repeated network requests
+        self._upstream_tool_cache = UpstreamToolCache(ttl_seconds=300)
+
+        # File watcher for hot-reload
+        self._file_watcher = FileWatcher(
+            watch_dir=self.storage.skills_dir,
+            on_skill_changed=self._on_skill_changed,
+            on_skill_created=self._on_skill_created,
+            on_skill_deleted=self._on_skill_deleted,
+            poll_interval=2.0  # Check every 2 seconds
+        )
+
         # Register tools
         self._register_tools()
         self._setup_list_tools()
@@ -75,15 +90,92 @@ class SkillFlowServer:
         # Start metrics collection
         await self.metrics.start()
 
+        # Start file watcher for hot-reload
+        await self._file_watcher.start()
+        print("[Skillflow] File watcher started - skills will auto-reload on changes")
+
         # Log server start event
         self.audit.log_event(
             AuditEventType.SERVER_STARTED,
-            "SkillFlow MCP server started",
+            "SkillFlow MCP server started with hot-reload enabled",
             severity=AuditEventSeverity.INFO
         )
 
         # Register dynamic skill tools
         await self._register_skill_tools()
+
+    async def shutdown(self):
+        """Shutdown server and cleanup resources."""
+        # Stop file watcher
+        await self._file_watcher.stop()
+        print("[Skillflow] File watcher stopped")
+
+        # Stop metrics collection
+        await self.metrics.stop()
+
+        # Log server stop event
+        self.audit.log_event(
+            AuditEventType.SERVER_STOPPED,
+            "SkillFlow MCP server stopped",
+            severity=AuditEventSeverity.INFO
+        )
+
+    def _on_skill_changed(self, skill_id: str):
+        """Callback when a skill is modified.
+
+        Args:
+            skill_id: ID of the modified skill
+        """
+        print(f"[Skillflow] Skill modified: {skill_id} - invalidating cache")
+
+        # Invalidate cache for this skill
+        asyncio.create_task(self.storage.invalidate_skill_cache(skill_id))
+
+        # Log event
+        self.audit.log_event(
+            AuditEventType.SKILL_MODIFIED,
+            f"Skill {skill_id} modified and cache invalidated",
+            severity=AuditEventSeverity.INFO,
+            skill_id=skill_id
+        )
+
+    def _on_skill_created(self, skill_id: str):
+        """Callback when a skill is created.
+
+        Args:
+            skill_id: ID of the created skill
+        """
+        print(f"[Skillflow] New skill detected: {skill_id} - clearing tool list cache")
+
+        # Invalidate entire cache to include new skill
+        asyncio.create_task(self.storage.invalidate_skill_cache())
+
+        # Log event
+        self.audit.log_event(
+            AuditEventType.SKILL_CREATED,
+            f"Skill {skill_id} created and detected by file watcher",
+            severity=AuditEventSeverity.INFO,
+            skill_id=skill_id
+        )
+
+    def _on_skill_deleted(self, skill_id: str):
+        """Callback when a skill is deleted.
+
+        Args:
+            skill_id: ID of the deleted skill
+        """
+        print(f"[Skillflow] Skill deleted: {skill_id} - removing from cache")
+
+        # Invalidate cache for this skill
+        asyncio.create_task(self.storage.invalidate_skill_cache(skill_id))
+
+        # Log event
+        self.audit.log_event(
+            AuditEventType.SKILL_DELETED,
+            f"Skill {skill_id} deleted and removed from cache",
+            severity=AuditEventSeverity.INFO,
+            skill_id=skill_id
+        )
 
     async def _execute_tool(
         self,
@@ -957,6 +1049,122 @@ class SkillFlowServer:
                     text=f"Recording Session Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
                 )]
 
+            # ========== Cache Management Tools ==========
+            if tool_name == "get_cache_stats":
+                """Get upstream tool cache statistics."""
+                import json
+
+                stats = await self._upstream_tool_cache.get_stats()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Upstream Tool Cache Statistics:\n{json.dumps(stats, indent=2, ensure_ascii=False)}"
+                )]
+
+            if tool_name == "invalidate_cache":
+                """Invalidate upstream tool cache."""
+                import json
+
+                server_id = arguments.get("server_id")
+
+                await self._upstream_tool_cache.invalidate(server_id)
+
+                if server_id:
+                    message = f"Cache invalidated for server: {server_id}"
+                else:
+                    message = "Cache invalidated for all servers"
+
+                return [TextContent(type="text", text=message)]
+
+            if tool_name == "refresh_upstream_tools":
+                """Force refresh of upstream tools."""
+                import json
+
+                server_id = arguments.get("server_id")
+
+                # Invalidate cache
+                await self._upstream_tool_cache.invalidate(server_id)
+
+                # Re-fetch tools
+                if server_id:
+                    # Fetch from specific server
+                    servers = await self.mcp_clients.list_servers()
+                    server_config = next((s for s in servers if s.server_id == server_id), None)
+
+                    if not server_config:
+                        return [TextContent(type="text", text=f"Server not found: {server_id}")]
+
+                    tools, error = await self._fetch_server_tools(server_config)
+
+                    if error:
+                        return [TextContent(type="text", text=f"Error refreshing tools: {error}")]
+
+                    return [TextContent(
+                        type="text",
+                        text=f"Refreshed {len(tools)} tools from {server_config.name}"
+                    )]
+                else:
+                    # Fetch from all servers
+                    upstream_tools = await self._get_upstream_tools()
+
+                    return [TextContent(
+                        type="text",
+                        text=f"Refreshed {len(upstream_tools)} tools from all upstream servers"
+                    )]
+
+            # ========== Skill Cache Management Tools ==========
+            if tool_name == "get_skill_cache_stats":
+                """Get skill cache statistics."""
+                import json
+
+                stats = await self.storage.get_cache_stats()
+
+                if stats is None:
+                    return [TextContent(type="text", text="Skill caching is disabled")]
+
+                return [TextContent(
+                    type="text",
+                    text=f"Skill Cache Statistics:\n{json.dumps(stats, indent=2, ensure_ascii=False)}"
+                )]
+
+            if tool_name == "invalidate_skill_cache":
+                """Invalidate skill cache."""
+                skill_id = arguments.get("skill_id")
+
+                await self.storage.invalidate_skill_cache(skill_id)
+
+                if skill_id:
+                    message = f"Skill cache invalidated for: {skill_id}"
+                else:
+                    message = "All skill caches invalidated"
+
+                return [TextContent(type="text", text=message)]
+
+            if tool_name == "force_skill_reload":
+                """Force reload of skills from disk."""
+                # Clear all caches
+                await self.storage.invalidate_skill_cache()
+
+                # Rebuild skill index
+                await self.storage._rebuild_skill_index()
+
+                # Get skill count
+                skills = await self.storage.list_skills()
+
+                return [TextContent(
+                    type="text",
+                    text=f"Skills reloaded from disk. Total: {len(skills)} skills"
+                )]
+
+            if tool_name == "trigger_hot_reload":
+                """Manually trigger hot-reload check."""
+                await self._file_watcher.trigger_manual_scan()
+
+                return [TextContent(
+                    type="text",
+                    text="Hot-reload check triggered. Any changes will be detected and caches invalidated."
+                )]
+
             # Unknown tool name
             return [
                 TextContent(
@@ -976,88 +1184,161 @@ class SkillFlowServer:
         # No pre-registration needed
         pass
 
+    async def _fetch_server_tools(self, server_config) -> tuple[list[Tool], Optional[str]]:
+        """Fetch tools from a single upstream server with caching.
+
+        Args:
+            server_config: Server configuration
+
+        Returns:
+            Tuple of (list of proxy tools, error message or None)
+        """
+        server_id = server_config.server_id
+        server_name = server_config.name
+
+        try:
+            # Check cache first
+            cached_tools = await self._upstream_tool_cache.get(server_id)
+            if cached_tools is not None:
+                print(f"[Skillflow] Using cached tools for {server_name} ({len(cached_tools)} tools)")
+                # Convert cached tool dicts to proxy tools
+                proxy_tools = []
+                for tool_dict in cached_tools:
+                    # Reconstruct proxy tool from cached data
+                    proxy_tool = Tool(
+                        name=tool_dict['name'],
+                        description=tool_dict['description'],
+                        inputSchema=tool_dict.get('inputSchema', {"type": "object", "properties": {}}),
+                    )
+                    proxy_tools.append(proxy_tool)
+                return proxy_tools, None
+
+            # Cache miss - fetch from server
+            print(f"[Skillflow] Fetching tools from {server_name}...")
+
+            try:
+                tools = await asyncio.wait_for(
+                    self.mcp_clients.list_tools(server_id),
+                    timeout=30.0  # 30 seconds for slow servers
+                )
+            except asyncio.TimeoutError:
+                # Clean up partial connection on timeout
+                error_msg = f"Timeout connecting to {server_name}"
+                print(f"[Skillflow] {error_msg} - cleaning up partial connection...")
+                await self.mcp_clients.disconnect_server(server_id)
+                return [], error_msg
+
+            print(f"[Skillflow] Found {len(tools)} tools from {server_name}")
+
+            # Create proxy tools and prepare for caching
+            proxy_tools = []
+            cache_data = []
+
+            for tool_dict in tools:
+                original_tool_name = tool_dict['name']
+                proxy_tool_name = generate_proxy_tool_name(
+                    server_id,
+                    original_tool_name,
+                    max_length=47  # Reserve space for client prefix
+                )
+
+                # Store hash mapping if using hash format
+                server_part, tool_part = parse_proxy_tool_name(proxy_tool_name)
+                if server_part and len(server_part) <= 8 and all(c in '0123456789abcdef' for c in server_part):
+                    # It's a hash, store the mapping
+                    self._hash_to_server_id[server_part] = server_id
+
+                # Add server info to description
+                description = tool_dict.get('description', '')
+                enhanced_description = f"[{server_name}] {description}"
+
+                # Create proxy tool
+                proxy_tool = Tool(
+                    name=proxy_tool_name,
+                    description=enhanced_description,
+                    inputSchema=tool_dict.get('inputSchema', {"type": "object", "properties": {}}),
+                )
+                proxy_tools.append(proxy_tool)
+
+                # Prepare data for caching (Tool objects aren't directly serializable)
+                cache_data.append({
+                    'name': proxy_tool_name,
+                    'description': enhanced_description,
+                    'inputSchema': tool_dict.get('inputSchema', {"type": "object", "properties": {}})
+                })
+
+            # Cache the tools
+            await self._upstream_tool_cache.set(server_id, cache_data, server_name)
+
+            return proxy_tools, None
+
+        except Exception as e:
+            error_msg = f"Error from {server_name}: {str(e)}"
+            print(f"[Skillflow] {error_msg}")
+            return [], error_msg
+
     async def _get_upstream_tools(self) -> list[Tool]:
         """Get all tools from upstream servers and create proxy tools.
+
+        Optimized with:
+        - Parallel fetching from all servers
+        - Tool caching (5 minute TTL)
+        - Timeout isolation (one slow server doesn't block others)
 
         Returns:
             List of proxy tools with prefixed names
         """
+        import time
+        start_time = time.time()
+
         upstream_tools = []
-        errors = []  # Track errors for debugging
+        errors = []
 
         try:
             servers = await self.mcp_clients.list_servers()
+            enabled_servers = [s for s in servers if s.enabled]
 
-            for server_config in servers:
-                if not server_config.enabled:
-                    continue
+            if not enabled_servers:
+                print("[Skillflow] No enabled upstream servers")
+                return []
 
-                try:
-                    # Try to get tools from this server with timeout
-                    # Use asyncio.wait_for to prevent hanging on slow/unresponsive servers
-                    print(f"[Skillflow] Fetching tools from {server_config.server_id}...")
+            print(f"[Skillflow] Fetching tools from {len(enabled_servers)} upstream servers in parallel...")
 
-                    try:
-                        tools = await asyncio.wait_for(
-                            self.mcp_clients.list_tools(server_config.server_id),
-                            timeout=30.0  # Increased to 30 seconds for slow Windows servers
-                        )
-                    except asyncio.TimeoutError:
-                        # CRITICAL: Clean up partial connection on timeout to avoid resource leak
-                        error_msg = f"Timeout connecting to {server_config.server_id}"
-                        print(f"[Skillflow] {error_msg} - cleaning up partial connection...")
+            # Fetch from all servers in parallel
+            tasks = [
+                self._fetch_server_tools(server_config)
+                for server_config in enabled_servers
+            ]
 
-                        # Disconnect to clean up any partial connections and kill orphaned processes
-                        await self.mcp_clients.disconnect_server(server_config.server_id)
+            # Use gather with return_exceptions to handle failures gracefully
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                        errors.append(error_msg)
-                        continue  # Skip to next server
-
-                    print(f"[Skillflow] Found {len(tools)} tools from {server_config.server_id}")
-
-                    # Create proxy tools with compact naming
-                    # Max 47 chars to account for Fount's 13-char prefix (mcp_skillflow_)
-                    # Total: 13 + 47 = 60 chars
-                    for tool_dict in tools:
-                        original_tool_name = tool_dict['name']
-                        proxy_tool_name = generate_proxy_tool_name(
-                            server_config.server_id,
-                            original_tool_name,
-                            max_length=47  # Reserve space for client prefix
-                        )
-
-                        # Store hash mapping if using hash format
-                        # Parse to check if it's a hash format (up_<hash>_toolname)
-                        server_part, tool_part = parse_proxy_tool_name(proxy_tool_name)
-                        if server_part and len(server_part) <= 8 and all(c in '0123456789abcdef' for c in server_part):
-                            # It's a hash, store the mapping
-                            self._hash_to_server_id[server_part] = server_config.server_id
-
-                        # Add server info to description
-                        description = tool_dict.get('description', '')
-                        enhanced_description = f"[{server_config.name}] {description}"
-
-                        proxy_tool = Tool(
-                            name=proxy_tool_name,
-                            description=enhanced_description,
-                            inputSchema=tool_dict.get('inputSchema', {"type": "object", "properties": {}}),
-                        )
-                        upstream_tools.append(proxy_tool)
-
-                except Exception as e:
-                    error_msg = f"Error from {server_config.server_id}: {str(e)}"
+            # Process results
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    # Task raised an exception
+                    server_name = enabled_servers[i].name
+                    error_msg = f"Exception from {server_name}: {str(result)}"
                     print(f"[Skillflow] {error_msg}")
                     errors.append(error_msg)
+                else:
+                    # Task completed successfully
+                    tools, error = result
+                    if error:
+                        errors.append(error)
+                    else:
+                        upstream_tools.extend(tools)
 
         except Exception as e:
             error_msg = f"Failed to get upstream tools: {str(e)}"
             print(f"[Skillflow] {error_msg}")
             errors.append(error_msg)
 
+        elapsed_ms = (time.time() - start_time) * 1000
+        print(f"[Skillflow] Fetched {len(upstream_tools)} proxy tools in {elapsed_ms:.0f}ms")
+
         if errors:
             print(f"[Skillflow] Encountered {len(errors)} errors while fetching upstream tools")
-
-        print(f"[Skillflow] Total proxy tools created: {len(upstream_tools)}")
 
         return upstream_tools
 
@@ -1348,6 +1629,67 @@ class SkillFlowServer:
                         },
                         "required": ["session_id"],
                     },
+                ),
+                # Cache management tools
+                Tool(
+                    name="get_cache_stats",
+                    description="Get upstream tool cache statistics (hit rate, cached servers, etc.)",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="invalidate_cache",
+                    description="Invalidate upstream tool cache for a specific server or all servers",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "Server ID to invalidate (omit to clear all)",
+                            },
+                        },
+                    },
+                ),
+                Tool(
+                    name="refresh_upstream_tools",
+                    description="Force refresh of upstream tools by invalidating cache and re-fetching",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "Server ID to refresh (omit to refresh all)",
+                            },
+                        },
+                    },
+                ),
+                # Skill cache management tools
+                Tool(
+                    name="get_skill_cache_stats",
+                    description="Get skill cache statistics (hit rate, cached skills, tool list cache)",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="invalidate_skill_cache",
+                    description="Invalidate skill cache for a specific skill or all skills",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "skill_id": {
+                                "type": "string",
+                                "description": "Skill ID to invalidate (omit to clear all)",
+                            },
+                        },
+                    },
+                ),
+                Tool(
+                    name="force_skill_reload",
+                    description="Force reload of skills from disk and clear all caches",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="trigger_hot_reload",
+                    description="Manually trigger hot-reload check (useful for immediate reload without waiting for poll interval)",
+                    inputSchema={"type": "object", "properties": {}},
                 ),
             ]
 
