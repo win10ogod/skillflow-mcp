@@ -379,9 +379,6 @@ class StorageLayer:
         Returns:
             Server registry in SkillFlow internal format
         """
-        import logging
-        logger = logging.getLogger(__name__)
-
         registry_path = self._get_registry_path()
         if not registry_path.exists():
             return ServerRegistry()
@@ -398,13 +395,13 @@ class StorageLayer:
 
             if config_format == "claude_code" or config_format == "claude_code_nested":
                 # Convert Claude Code format to SkillFlow format
-                logger.info(f"Detected {config_format} format, converting to SkillFlow format")
+                print(f"[Storage] Detected {config_format} format, converting to SkillFlow format")
                 registry = convert_claude_code_to_skillflow(data)
 
                 # Save converted format back to disk for future use
                 # This ensures we maintain the full SkillFlow format with metadata
                 await self.save_registry(registry)
-                logger.info("Converted configuration saved to disk")
+                print("[Storage] Converted configuration saved to disk")
 
                 return registry
             elif config_format == "skillflow":
@@ -412,7 +409,7 @@ class StorageLayer:
                 return ServerRegistry(**data)
             else:
                 # Unknown format, return empty registry
-                logger.warning(f"Unknown configuration format, returning empty registry")
+                print(f"[Storage] Warning: Unknown configuration format, returning empty registry")
                 return ServerRegistry()
 
     # ========== Helper Methods ==========
