@@ -374,12 +374,27 @@ class StorageLayer:
         """
         registry_path = self._get_registry_path()
         if not registry_path.exists():
+            logger.info(f"Registry file does not exist: {registry_path}")
             return ServerRegistry()
 
-        async with aiofiles.open(registry_path, "r", encoding="utf-8") as f:
-            content = await f.read()
-            data = json.loads(content)
-            return ServerRegistry(**data)
+        try:
+            async with aiofiles.open(registry_path, "r", encoding="utf-8") as f:
+                content = await f.read()
+                data = json.loads(content)
+
+                logger.debug(f"Loaded registry JSON with {len(data.get('servers', {}))} servers")
+
+                # Parse into ServerRegistry
+                registry = ServerRegistry(**data)
+                logger.info(f"Successfully loaded registry with {len(registry.servers)} servers")
+                return registry
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse registry JSON: {e}")
+            return ServerRegistry()
+        except Exception as e:
+            logger.error(f"Failed to load registry: {e}", exc_info=True)
+            return ServerRegistry()
 
     # ========== Helper Methods ==========
 

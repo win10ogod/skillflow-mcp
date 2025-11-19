@@ -312,6 +312,14 @@ class MCPClientManager:
 
         return list(self._registry.servers.values())
 
+    async def reload_registry(self):
+        """Reload server registry from storage.
+
+        Call this after adding/removing/updating servers to pick up changes.
+        """
+        self._registry = await self.storage.load_registry()
+        logger.info(f"Reloaded registry with {len(self._registry.servers)} servers")
+
     async def close_all(self):
         """Close all client connections."""
         logger.info(f"Closing {len(self._clients)} client connections")

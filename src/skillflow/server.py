@@ -1115,6 +1115,51 @@ class SkillFlowServer:
                         text=f"Refreshed {len(upstream_tools)} tools from all upstream servers"
                     )]
 
+            if tool_name == "debug_registry":
+                """Debug registry loading - shows file path, content, and loaded state."""
+                import json
+
+                registry_path = self.storage._get_registry_path()
+                debug_info = {
+                    "registry_file_path": str(registry_path),
+                    "file_exists": registry_path.exists(),
+                }
+
+                if registry_path.exists():
+                    try:
+                        # Read raw file content
+                        with open(registry_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                            data = json.loads(content)
+                            debug_info["file_content_servers_count"] = len(data.get("servers", {}))
+                            debug_info["file_content_server_ids"] = list(data.get("servers", {}).keys())
+
+                    except Exception as e:
+                        debug_info["file_read_error"] = str(e)
+
+                # Check loaded registry state
+                try:
+                    loaded_registry = await self.storage.load_registry()
+                    debug_info["loaded_registry_servers_count"] = len(loaded_registry.servers)
+                    debug_info["loaded_registry_server_ids"] = list(loaded_registry.servers.keys())
+                except Exception as e:
+                    debug_info["load_error"] = str(e)
+                    import traceback
+                    debug_info["load_traceback"] = traceback.format_exc()
+
+                # Check MCPClientManager state
+                try:
+                    servers = await self.mcp_clients.list_servers()
+                    debug_info["mcp_manager_servers_count"] = len(servers)
+                    debug_info["mcp_manager_server_ids"] = [s.server_id for s in servers]
+                except Exception as e:
+                    debug_info["mcp_manager_error"] = str(e)
+
+                return [TextContent(
+                    type="text",
+                    text=f"Registry Debug Info:\n{json.dumps(debug_info, indent=2, ensure_ascii=False)}"
+                )]
+
             # ========== Skill Cache Management Tools ==========
             if tool_name == "get_skill_cache_stats":
                 """Get skill cache statistics."""
@@ -1194,19 +1239,33 @@ class SkillFlowServer:
                         )
                         await self.storage.save_registry(merged_registry)
 
+                        # Reload registry and invalidate caches
+                        await self.mcp_clients.reload_registry()
+                        await self._upstream_tool_cache.invalidate()  # Clear all upstream caches
+                        print(f"[Skillflow] Registry reloaded after importing {len(new_registry.servers)} servers")
+
                         return [TextContent(
                             type="text",
                             text=f"✅ Imported {len(new_registry.servers)} servers and merged with existing config.\n"
                                  f"Total servers: {len(merged_registry.servers)}\n"
-                                 f"Overwrite mode: {overwrite}"
+                                 f"Overwrite mode: {overwrite}\n\n"
+                                 f"⚠️ Note: New tools will appear after you refresh your MCP client.\n"
+                                 f"You can also call 'refresh_upstream_tools' to fetch tools immediately."
                         )]
                     else:
                         # Replace entire registry
                         await self.storage.save_registry(new_registry)
 
+                        # Reload registry and invalidate caches
+                        await self.mcp_clients.reload_registry()
+                        await self._upstream_tool_cache.invalidate()  # Clear all upstream caches
+                        print(f"[Skillflow] Registry replaced with {len(new_registry.servers)} servers")
+
                         return [TextContent(
                             type="text",
-                            text=f"✅ Replaced configuration with {len(new_registry.servers)} servers from Claude Code config."
+                            text=f"✅ Replaced configuration with {len(new_registry.servers)} servers from Claude Code config.\n\n"
+                                 f"⚠️ Note: New tools will appear after you refresh your MCP client.\n"
+                                 f"You can also call 'refresh_upstream_tools' to fetch tools immediately."
                         )]
 
                 except json.JSONDecodeError as e:
@@ -1317,6 +1376,10 @@ class SkillFlowServer:
                 # Save registry
                 await self.storage.save_registry(registry)
 
+                # Reload registry in MCP client manager
+                await self.mcp_clients.reload_registry()
+                print(f"[Skillflow] Registry reloaded after adding server '{server_id}'")
+
                 # Invalidate upstream tool cache for this server
                 await self._upstream_tool_cache.invalidate(server_id)
 
@@ -1325,7 +1388,9 @@ class SkillFlowServer:
                     text=f"✅ {action} MCP server '{server_id}' ({name})\n"
                          f"Transport: {transport}\n"
                          f"Enabled: {enabled}\n"
-                         f"Total servers: {len(registry.servers)}"
+                         f"Total servers: {len(registry.servers)}\n\n"
+                         f"⚠️ Note: New tools will appear after you call list_tools() again or refresh your MCP client.\n"
+                         f"You can also call 'refresh_upstream_tools' to fetch tools immediately."
                 )]
 
             if tool_name == "remove_mcp_server":
@@ -1349,6 +1414,10 @@ class SkillFlowServer:
                 # Save registry
                 await self.storage.save_registry(registry)
 
+                # Reload registry in MCP client manager
+                await self.mcp_clients.reload_registry()
+                print(f"[Skillflow] Registry reloaded after removing server '{server_id}'")
+
                 # Invalidate upstream tool cache for this server
                 await self._upstream_tool_cache.invalidate(server_id)
 
@@ -1358,7 +1427,8 @@ class SkillFlowServer:
                 return [TextContent(
                     type="text",
                     text=f"✅ Removed MCP server '{server_id}' ({server_name})\n"
-                         f"Remaining servers: {len(registry.servers)}"
+                         f"Remaining servers: {len(registry.servers)}\n\n"
+                         f"⚠️ Note: Tools from this server will be removed after you refresh your MCP client."
                 )]
 
             # Unknown tool name
@@ -1857,6 +1927,11 @@ class SkillFlowServer:
                             },
                         },
                     },
+                ),
+                Tool(
+                    name="debug_registry",
+                    description="Debug registry loading - shows file path, content, and loaded state (for troubleshooting)",
+                    inputSchema={"type": "object", "properties": {}},
                 ),
                 # Skill cache management tools
                 Tool(
