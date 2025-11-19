@@ -84,6 +84,9 @@ class SkillFlowServer:
 
     async def initialize(self):
         """Initialize server and load data."""
+        import logging
+        logger = logging.getLogger(__name__)
+
         await self.storage.initialize()
         await self.mcp_clients.initialize()
 
@@ -92,7 +95,7 @@ class SkillFlowServer:
 
         # Start file watcher for hot-reload
         await self._file_watcher.start()
-        print("[Skillflow] File watcher started - skills will auto-reload on changes")
+        logger.info("File watcher started - skills will auto-reload on changes")
 
         # Log server start event
         self.audit.log_event(
@@ -106,9 +109,12 @@ class SkillFlowServer:
 
     async def shutdown(self):
         """Shutdown server and cleanup resources."""
+        import logging
+        logger = logging.getLogger(__name__)
+
         # Stop file watcher
         await self._file_watcher.stop()
-        print("[Skillflow] File watcher stopped")
+        logger.info("File watcher stopped")
 
         # Stop metrics collection
         await self.metrics.stop()
@@ -126,7 +132,9 @@ class SkillFlowServer:
         Args:
             skill_id: ID of the modified skill
         """
-        print(f"[Skillflow] Skill modified: {skill_id} - invalidating cache")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Skill modified: {skill_id} - invalidating cache")
 
         # Invalidate cache for this skill
         asyncio.create_task(self.storage.invalidate_skill_cache(skill_id))
@@ -145,7 +153,9 @@ class SkillFlowServer:
         Args:
             skill_id: ID of the created skill
         """
-        print(f"[Skillflow] New skill detected: {skill_id} - clearing tool list cache")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"New skill detected: {skill_id} - clearing tool list cache")
 
         # Invalidate entire cache to include new skill
         asyncio.create_task(self.storage.invalidate_skill_cache())
@@ -164,7 +174,9 @@ class SkillFlowServer:
         Args:
             skill_id: ID of the deleted skill
         """
-        print(f"[Skillflow] Skill deleted: {skill_id} - removing from cache")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Skill deleted: {skill_id} - removing from cache")
 
         # Invalidate cache for this skill
         asyncio.create_task(self.storage.invalidate_skill_cache(skill_id))
@@ -748,7 +760,9 @@ class SkillFlowServer:
                         # Test connection to each server
                         if server.enabled:
                             try:
-                                print(f"[Debug] Testing connection to {server.server_id}...")
+                                import logging
+                                logger = logging.getLogger(__name__)
+                                logger.debug(f"Testing connection to {server.server_id}...")
 
                                 try:
                                     tools = await asyncio.wait_for(
@@ -764,7 +778,7 @@ class SkillFlowServer:
 
                                 except asyncio.TimeoutError:
                                     # Clean up partial connection to avoid resource leak
-                                    print(f"[Debug] Timeout on {server.server_id}, cleaning up...")
+                                    logger.warning(f"Timeout on {server.server_id}, cleaning up...")
                                     await self.mcp_clients.disconnect_server(server.server_id)
 
                                     debug_info["connection_tests"][server.server_id] = {
@@ -774,7 +788,9 @@ class SkillFlowServer:
 
                             except Exception as e:
                                 # CRITICAL: Clean up connection on ANY error to prevent process leak
-                                print(f"[Debug] Error on {server.server_id}, cleaning up...")
+                                import logging
+                                logger = logging.getLogger(__name__)
+                                logger.warning(f"Error on {server.server_id}, cleaning up...")
                                 try:
                                     await self.mcp_clients.disconnect_server(server.server_id)
                                 except:
@@ -1193,6 +1209,9 @@ class SkillFlowServer:
         Returns:
             Tuple of (list of proxy tools, error message or None)
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         server_id = server_config.server_id
         server_name = server_config.name
 
@@ -1200,7 +1219,7 @@ class SkillFlowServer:
             # Check cache first
             cached_tools = await self._upstream_tool_cache.get(server_id)
             if cached_tools is not None:
-                print(f"[Skillflow] Using cached tools for {server_name} ({len(cached_tools)} tools)")
+                logger.debug(f"Using cached tools for {server_name} ({len(cached_tools)} tools)")
                 # Convert cached tool dicts to proxy tools
                 proxy_tools = []
                 for tool_dict in cached_tools:
@@ -1214,7 +1233,7 @@ class SkillFlowServer:
                 return proxy_tools, None
 
             # Cache miss - fetch from server
-            print(f"[Skillflow] Fetching tools from {server_name}...")
+            logger.info(f"Fetching tools from {server_name}...")
 
             try:
                 tools = await asyncio.wait_for(
@@ -1224,11 +1243,11 @@ class SkillFlowServer:
             except asyncio.TimeoutError:
                 # Clean up partial connection on timeout
                 error_msg = f"Timeout connecting to {server_name}"
-                print(f"[Skillflow] {error_msg} - cleaning up partial connection...")
+                logger.warning(f"{error_msg} - cleaning up partial connection...")
                 await self.mcp_clients.disconnect_server(server_id)
                 return [], error_msg
 
-            print(f"[Skillflow] Found {len(tools)} tools from {server_name}")
+            logger.info(f"Found {len(tools)} tools from {server_name}")
 
             # Create proxy tools and prepare for caching
             proxy_tools = []
@@ -1273,8 +1292,10 @@ class SkillFlowServer:
             return proxy_tools, None
 
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
             error_msg = f"Error from {server_name}: {str(e)}"
-            print(f"[Skillflow] {error_msg}")
+            logger.error(error_msg)
             return [], error_msg
 
     async def _get_upstream_tools(self) -> list[Tool]:
@@ -1289,6 +1310,9 @@ class SkillFlowServer:
             List of proxy tools with prefixed names
         """
         import time
+        import logging
+        logger = logging.getLogger(__name__)
+
         start_time = time.time()
 
         upstream_tools = []
@@ -1299,10 +1323,10 @@ class SkillFlowServer:
             enabled_servers = [s for s in servers if s.enabled]
 
             if not enabled_servers:
-                print("[Skillflow] No enabled upstream servers")
+                logger.info("No enabled upstream servers")
                 return []
 
-            print(f"[Skillflow] Fetching tools from {len(enabled_servers)} upstream servers in parallel...")
+            logger.info(f"Fetching tools from {len(enabled_servers)} upstream servers in parallel...")
 
             # Fetch from all servers in parallel
             tasks = [
@@ -1319,7 +1343,7 @@ class SkillFlowServer:
                     # Task raised an exception
                     server_name = enabled_servers[i].name
                     error_msg = f"Exception from {server_name}: {str(result)}"
-                    print(f"[Skillflow] {error_msg}")
+                    logger.error(error_msg)
                     errors.append(error_msg)
                 else:
                     # Task completed successfully
@@ -1331,14 +1355,14 @@ class SkillFlowServer:
 
         except Exception as e:
             error_msg = f"Failed to get upstream tools: {str(e)}"
-            print(f"[Skillflow] {error_msg}")
+            logger.error(error_msg)
             errors.append(error_msg)
 
         elapsed_ms = (time.time() - start_time) * 1000
-        print(f"[Skillflow] Fetched {len(upstream_tools)} proxy tools in {elapsed_ms:.0f}ms")
+        logger.info(f"Fetched {len(upstream_tools)} proxy tools in {elapsed_ms:.0f}ms")
 
         if errors:
-            print(f"[Skillflow] Encountered {len(errors)} errors while fetching upstream tools")
+            logger.warning(f"Encountered {len(errors)} errors while fetching upstream tools")
 
         return upstream_tools
 
@@ -1364,7 +1388,9 @@ class SkillFlowServer:
             # It's a hash, look up the actual server_id
             server_id = self._hash_to_server_id.get(server_part)
             if not server_id:
-                print(f"[Skillflow] Warning: Hash {server_part} not found in mapping")
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Hash {server_part} not found in mapping")
                 return None, None
             return server_id, tool_part
 
