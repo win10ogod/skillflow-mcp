@@ -89,11 +89,66 @@ class ConfigConverter:
     """Converts between different configuration formats."""
 
     @staticmethod
+    def _normalize_server_config(server_id: str, server_data: dict[str, Any]) -> dict[str, Any]:
+        """Normalize a server configuration by filling in missing fields.
+
+        Args:
+            server_id: The server identifier
+            server_data: Raw server configuration data
+
+        Returns:
+            Normalized server configuration
+        """
+        normalized = dict(server_data)
+
+        # Ensure server_id is set
+        if "server_id" not in normalized:
+            normalized["server_id"] = server_id
+
+        # Ensure name is set (default to server_id)
+        if "name" not in normalized:
+            normalized["name"] = server_id.replace("_", " ").replace("-", " ").title()
+
+        # Ensure transport is set (default to stdio)
+        if "transport" not in normalized:
+            normalized["transport"] = "stdio"
+
+        # Normalize config structure
+        # If command/args/env are at root level, move them into config
+        if "config" not in normalized:
+            config = {}
+
+            # Move command, args, env into config if they exist at root
+            if "command" in normalized:
+                config["command"] = normalized.pop("command")
+            if "args" in normalized:
+                config["args"] = normalized.pop("args")
+            if "env" in normalized:
+                config["env"] = normalized.pop("env")
+
+            normalized["config"] = config
+
+        # Ensure enabled is set (default to True)
+        if "enabled" not in normalized:
+            normalized["enabled"] = True
+
+        # Ensure metadata is set (default to empty dict)
+        if "metadata" not in normalized:
+            normalized["metadata"] = {}
+
+        return normalized
+
+    @staticmethod
     def from_claude_code(claude_code_config: dict[str, Any]) -> ServerRegistry:
         """Convert Claude Code configuration to ServerRegistry.
 
         Supports both standard Claude Code format with 'mcpServers' key
         and SkillFlow internal format with 'servers' key.
+
+        Automatically normalizes incomplete configurations by:
+        - Adding missing server_id, name, transport fields
+        - Moving command/args/env from root to config object
+        - Setting default values for enabled and metadata
 
         Args:
             claude_code_config: Configuration dict with 'mcpServers' or 'servers' key
@@ -102,31 +157,48 @@ class ConfigConverter:
             ServerRegistry instance
 
         Raises:
-            ValueError: If configuration is invalid
+            ValueError: If configuration is invalid after normalization
         """
         # Handle both 'mcpServers' (standard Claude Code) and 'servers' (internal) keys
         if "mcpServers" in claude_code_config:
-            # Convert mcpServers to servers for validation
-            normalized_config = {"servers": claude_code_config["mcpServers"]}
+            # Convert mcpServers to servers for processing
+            servers_dict = claude_code_config["mcpServers"]
         elif "servers" in claude_code_config:
-            normalized_config = claude_code_config
+            servers_dict = claude_code_config["servers"]
         else:
             raise ValueError("Configuration must contain either 'mcpServers' or 'servers' key")
 
-        # Validate first
+        # Normalize each server configuration
+        normalized_servers = {}
+        for server_id, server_data in servers_dict.items():
+            try:
+                normalized_servers[server_id] = ConfigConverter._normalize_server_config(
+                    server_id, server_data
+                )
+            except Exception as e:
+                logger.warning(f"Failed to normalize server '{server_id}': {e}")
+                # Skip this server but continue processing others
+                continue
+
+        normalized_config = {"servers": normalized_servers}
+
+        # Validate normalized config
         is_valid, errors = ConfigValidator.validate_registry(normalized_config)
         if not is_valid:
-            raise ValueError(f"Invalid configuration: {'; '.join(errors)}")
+            raise ValueError(f"Invalid configuration after normalization: {'; '.join(errors)}")
 
         # Convert to ServerRegistry
         servers = {}
-        for server_id, server_data in normalized_config["servers"].items():
-            # Ensure server_id is set
-            if "server_id" not in server_data:
-                server_data["server_id"] = server_id
+        for server_id, server_data in normalized_servers.items():
+            try:
+                servers[server_id] = ServerConfig(**server_data)
+            except Exception as e:
+                logger.error(f"Failed to create ServerConfig for '{server_id}': {e}")
+                # Skip invalid servers
+                continue
 
-            # Create ServerConfig
-            servers[server_id] = ServerConfig(**server_data)
+        if not servers:
+            raise ValueError("No valid servers found in configuration")
 
         return ServerRegistry(servers=servers)
 

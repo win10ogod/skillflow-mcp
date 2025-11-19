@@ -2,6 +2,57 @@
 
 ## Date: 2025-11-19
 
+### Fixed: Robust Configuration Loading with Auto-Normalization
+
+**Issue:** Configuration files with incomplete server definitions were failing to load, even if they contained all necessary information.
+
+**Root Cause:** The validator was too strict and required all fields to be present in a specific structure. Configurations with `command`/`args` at root level (instead of inside `config` object) or missing optional fields like `name`, `transport` would fail completely.
+
+**Solution:** Added intelligent auto-normalization to `ConfigConverter.from_claude_code()`:
+- Automatically moves `command`, `args`, `env` from root level into `config` object
+- Fills in missing required fields with sensible defaults:
+  - `server_id`: Uses the key name
+  - `name`: Generated from server_id (e.g., "memory" → "Memory")
+  - `transport`: Defaults to "stdio"
+  - `enabled`: Defaults to `true`
+  - `metadata`: Defaults to `{}`
+- Skips invalid servers instead of failing the entire configuration
+- Provides detailed logging for normalization and validation issues
+
+**Example:** This incomplete configuration now works:
+
+```json
+{
+  "servers": {
+    "memory": {
+      "command": "node",
+      "args": ["path/to/server"]
+      // Missing: server_id, name, transport, config wrapper
+    }
+  }
+}
+```
+
+After normalization, it becomes:
+
+```json
+{
+  "servers": {
+    "memory": {
+      "server_id": "memory",
+      "name": "Memory",
+      "transport": "stdio",
+      "config": {
+        "command": "node",
+        "args": ["path/to/server"]
+      },
+      "enabled": true,
+      "metadata": {}
+    }
+  }
+}
+```
+
 ### Fixed: Support for Standard Claude Code MCP Configuration Format
 
 **Issue:** The system did not support the standard Claude Code `mcpServers` configuration format.
@@ -89,8 +140,12 @@ Use the `import_claude_code_config` tool to import:
 ### Files Modified:
 
 1. **src/skillflow/config_utils.py**
-   - Updated `ConfigConverter.from_claude_code()` to handle both `mcpServers` and `servers` keys
-   - Added normalization logic to convert `mcpServers` to internal format
+   - Added `_normalize_server_config()` helper method for intelligent configuration normalization
+   - Updated `ConfigConverter.from_claude_code()` to:
+     - Handle both `mcpServers` (standard) and `servers` (internal) keys
+     - Normalize each server configuration automatically
+     - Skip invalid servers instead of failing completely
+     - Provide better error handling and logging
 
 2. **src/skillflow/server.py**
    - Added `step_indices`, `start_index`, and `end_index` parameters to `create_skill_from_session` tool schema
@@ -99,13 +154,23 @@ Use the `import_claude_code_config` tool to import:
 
 ### Benefits:
 
-1. **Full Claude Code Compatibility**: Users can now import MCP server configurations directly from Claude Code format without manual conversion
+1. **Robust Configuration Loading**:
+   - Handles incomplete or mixed-format configurations gracefully
+   - Automatically fixes common configuration issues
+   - Provides clear error messages for truly invalid configurations
+   - Continues loading valid servers even if some fail
 
-2. **Flexible Skill Creation**: Users can create skills from specific steps in a recording session, enabling:
-   - Removal of unwanted steps
-   - Creation of multiple skills from different parts of the same session
-   - Better control over skill composition
+2. **Full Claude Code Compatibility**:
+   - Supports standard `mcpServers` format
+   - Accepts configurations with command/args at any level
+   - Works with both complete and minimal configurations
 
-3. **Backward Compatibility**: All existing functionality continues to work unchanged
-   - If step selection parameters are omitted, all steps are included (default behavior)
-   - Internal `servers` format still supported
+3. **Flexible Skill Creation**:
+   - Select specific steps from recording sessions
+   - Create multiple skills from different parts of the same session
+   - Remove unwanted steps from skills
+
+4. **Backward Compatibility**:
+   - All existing functionality continues to work unchanged
+   - Internal `servers` format still fully supported
+   - Default values ensure existing workflows unaffected
