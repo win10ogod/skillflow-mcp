@@ -91,7 +91,9 @@ class StorageLayer:
                         skill_meta = SkillMeta(**meta_data)
                         self._skill_index[skill_meta.id] = skill_meta
                 except Exception as e:
-                    print(f"Error loading skill meta {meta_path}: {e}")
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Error loading skill meta {meta_path}: {e}")
 
     def _get_skill_dir(self, skill_id: str) -> Path:
         """Get directory path for a skill."""
