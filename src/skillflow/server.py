@@ -459,7 +459,23 @@ class SkillFlowServer:
                 tags = arguments.get("tags") or []
                 expose_params = arguments.get("expose_params") or []
 
-                # NEW: Support concurrency mode configuration
+                # Support step selection
+                step_indices = arguments.get("step_indices")
+                start_index = arguments.get("start_index")
+                end_index = arguments.get("end_index")
+
+                # Create StepSelection if any selection parameters provided
+                selection = None
+                if step_indices is not None or start_index is not None or end_index is not None:
+                    from .schemas import StepSelection
+                    selection = StepSelection(
+                        session_id=session_id,
+                        indices=step_indices,
+                        start_index=start_index,
+                        end_index=end_index,
+                    )
+
+                # Support concurrency mode configuration
                 concurrency_mode = arguments.get("concurrency_mode", "sequential")
                 concurrency_phases = arguments.get("concurrency_phases")  # For phased mode
                 max_parallel = arguments.get("max_parallel")  # For limiting parallelism
@@ -480,6 +496,7 @@ class SkillFlowServer:
                     skill_id=skill_id,
                     name=name,
                     description=description,
+                    selection=selection,
                     expose_params=params,
                     tags=tags,
                     concurrency_mode=concurrency_mode,
@@ -1669,7 +1686,7 @@ class SkillFlowServer:
                 ),
                 Tool(
                     name="create_skill_from_session",
-                    description="Create a skill from a recording session with configurable concurrency",
+                    description="Create a skill from a recording session with configurable concurrency and step selection",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -1681,6 +1698,19 @@ class SkillFlowServer:
                             "expose_params": {
                                 "type": "array",
                                 "items": {"type": "object"},
+                            },
+                            "step_indices": {
+                                "type": "array",
+                                "items": {"type": "integer"},
+                                "description": "Specific step indices to include (1-indexed). If omitted, includes all steps. Example: [1, 3, 5]",
+                            },
+                            "start_index": {
+                                "type": "integer",
+                                "description": "Start index for step range (1-indexed, inclusive). Used with end_index for range selection.",
+                            },
+                            "end_index": {
+                                "type": "integer",
+                                "description": "End index for step range (1-indexed, inclusive). Used with start_index for range selection.",
                             },
                             "concurrency_mode": {
                                 "type": "string",

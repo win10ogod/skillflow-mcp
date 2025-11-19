@@ -92,8 +92,11 @@ class ConfigConverter:
     def from_claude_code(claude_code_config: dict[str, Any]) -> ServerRegistry:
         """Convert Claude Code configuration to ServerRegistry.
 
+        Supports both standard Claude Code format with 'mcpServers' key
+        and SkillFlow internal format with 'servers' key.
+
         Args:
-            claude_code_config: Configuration dict with 'servers' key
+            claude_code_config: Configuration dict with 'mcpServers' or 'servers' key
 
         Returns:
             ServerRegistry instance
@@ -101,14 +104,23 @@ class ConfigConverter:
         Raises:
             ValueError: If configuration is invalid
         """
+        # Handle both 'mcpServers' (standard Claude Code) and 'servers' (internal) keys
+        if "mcpServers" in claude_code_config:
+            # Convert mcpServers to servers for validation
+            normalized_config = {"servers": claude_code_config["mcpServers"]}
+        elif "servers" in claude_code_config:
+            normalized_config = claude_code_config
+        else:
+            raise ValueError("Configuration must contain either 'mcpServers' or 'servers' key")
+
         # Validate first
-        is_valid, errors = ConfigValidator.validate_registry(claude_code_config)
+        is_valid, errors = ConfigValidator.validate_registry(normalized_config)
         if not is_valid:
             raise ValueError(f"Invalid configuration: {'; '.join(errors)}")
 
         # Convert to ServerRegistry
         servers = {}
-        for server_id, server_data in claude_code_config["servers"].items():
+        for server_id, server_data in normalized_config["servers"].items():
             # Ensure server_id is set
             if "server_id" not in server_data:
                 server_data["server_id"] = server_id
