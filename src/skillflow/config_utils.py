@@ -170,36 +170,51 @@ class ConfigConverter:
 
         # Normalize each server configuration
         normalized_servers = {}
+        skipped_servers = []
         for server_id, server_data in servers_dict.items():
             try:
-                normalized_servers[server_id] = ConfigConverter._normalize_server_config(
+                normalized = ConfigConverter._normalize_server_config(
                     server_id, server_data
                 )
+                normalized_servers[server_id] = normalized
+                logger.debug(f"Normalized server '{server_id}': {normalized.get('name', 'Unknown')}")
             except Exception as e:
                 logger.warning(f"Failed to normalize server '{server_id}': {e}")
+                skipped_servers.append(server_id)
                 # Skip this server but continue processing others
                 continue
+
+        if skipped_servers:
+            logger.warning(f"Skipped {len(skipped_servers)} invalid servers: {', '.join(skipped_servers)}")
 
         normalized_config = {"servers": normalized_servers}
 
         # Validate normalized config
         is_valid, errors = ConfigValidator.validate_registry(normalized_config)
         if not is_valid:
+            logger.error(f"Validation failed after normalization: {'; '.join(errors)}")
             raise ValueError(f"Invalid configuration after normalization: {'; '.join(errors)}")
 
         # Convert to ServerRegistry
         servers = {}
+        failed_servers = []
         for server_id, server_data in normalized_servers.items():
             try:
                 servers[server_id] = ServerConfig(**server_data)
+                logger.debug(f"Created ServerConfig for '{server_id}': transport={server_data.get('transport')}")
             except Exception as e:
-                logger.error(f"Failed to create ServerConfig for '{server_id}': {e}")
+                logger.error(f"Failed to create ServerConfig for '{server_id}': {e}", exc_info=True)
+                failed_servers.append(server_id)
                 # Skip invalid servers
                 continue
+
+        if failed_servers:
+            logger.warning(f"Failed to create {len(failed_servers)} server configs: {', '.join(failed_servers)}")
 
         if not servers:
             raise ValueError("No valid servers found in configuration")
 
+        logger.info(f"Successfully created registry with {len(servers)} servers: {', '.join(servers.keys())}")
         return ServerRegistry(servers=servers)
 
     @staticmethod
