@@ -255,17 +255,36 @@ def _detect_transport_type(
         return config["transport"]
 
     # Detect from command/args
+    # Only check command and module names, not file paths to avoid false positives
     all_parts = [command] + args
 
     # Check for HTTP/SSE indicators
-    if any("http" in part.lower() for part in all_parts):
-        if any("sse" in part.lower() for part in all_parts):
-            return "http_sse"
-        return "streamable_http"
+    # Look for http in command or module names (e.g., "http-server", "mcp-http")
+    for part in all_parts:
+        part_lower = part.lower()
+        # Skip file paths (contain \ or / or :)
+        if '\\' in part or '/' in part or ':' in part:
+            continue
+
+        if "http" in part_lower:
+            if "sse" in part_lower:
+                return "http_sse"
+            return "streamable_http"
 
     # Check for WebSocket indicators
-    if any("ws" in part.lower() or "websocket" in part.lower() for part in all_parts):
-        return "websocket"
+    # Only match explicit websocket keywords, not substrings in paths
+    for part in all_parts:
+        part_lower = part.lower()
+        # Skip file paths
+        if '\\' in part or '/' in part or ':' in part:
+            continue
+
+        # Only match if "websocket" or "ws" as a whole word/module name
+        if part_lower == "websocket" or part_lower == "ws" or \
+           part_lower.startswith("websocket-") or part_lower.startswith("ws-") or \
+           "-websocket" in part_lower or "-ws-" in part_lower or \
+           "websocket_" in part_lower or "ws_" in part_lower:
+            return "websocket"
 
     # Default to stdio
     return "stdio"
