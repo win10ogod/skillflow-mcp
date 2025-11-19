@@ -228,10 +228,27 @@ class NativeMCPClient:
 
         # Request from server
         if 'method' in message and 'id' in message:
+            request_id = message['id']
+
+            # Validate request ID - must not be None/null
+            # According to JSONRPC 2.0, id can be string/number/null, but MCP requires valid id
+            if request_id is None:
+                logger.error(
+                    f"[{self.server_id}] Received request with id=null for method '{message['method']}'. "
+                    f"This is invalid for MCP protocol. Ignoring request."
+                )
+                # Send error response with a generated ID to inform the server
+                await self._send_error_response(
+                    0,  # Use 0 as fallback ID
+                    -32600,  # Invalid Request error code
+                    "Request ID cannot be null in MCP protocol"
+                )
+                return
+
             await self._handle_server_request(
                 message['method'],
                 message.get('params', {}),
-                message['id'],
+                request_id,
             )
             return
 
@@ -374,11 +391,20 @@ class NativeMCPClient:
         if not self.process or not self.process.stdin:
             return
 
+        # Notification MUST NOT have an 'id' field according to JSONRPC 2.0
         notification = {
             'jsonrpc': '2.0',
             'method': method,
             'params': params or {},
         }
+
+        # Explicitly ensure no 'id' field is present (defensive programming)
+        if 'id' in notification:
+            logger.error(
+                f"[{self.server_id}] Notification for '{method}' incorrectly contains 'id' field. "
+                f"Removing it to comply with JSONRPC 2.0."
+            )
+            del notification['id']
 
         notification_text = json.dumps(notification) + '\n'
         await asyncio.get_event_loop().run_in_executor(
@@ -399,6 +425,14 @@ class NativeMCPClient:
             result: Response result
         """
         if not self.process or not self.process.stdin:
+            return
+
+        # Validate request_id - must not be None
+        if request_id is None:
+            logger.error(
+                f"[{self.server_id}] Attempted to send response with id=None. "
+                f"This is invalid for MCP protocol. Response will not be sent."
+            )
             return
 
         response = {
@@ -427,6 +461,14 @@ class NativeMCPClient:
             message: Error message
         """
         if not self.process or not self.process.stdin:
+            return
+
+        # Validate request_id - must not be None
+        if request_id is None:
+            logger.error(
+                f"[{self.server_id}] Attempted to send error response with id=None. "
+                f"Error was: [{code}] {message}. Response will not be sent."
+            )
             return
 
         response = {
