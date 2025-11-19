@@ -22,12 +22,15 @@ from .schemas import (
     StepSelection,
     ToolCallStatus,
     TransportType,
+    ServerConfig,
+    ServerRegistry,
 )
 from .skills import SkillManager
 from .storage import StorageLayer
 from .tool_naming import generate_proxy_tool_name, parse_proxy_tool_name
 from .upstream_tool_cache import UpstreamToolCache
 from .file_watcher import FileWatcher
+from .config_utils import ConfigValidator, ConfigConverter, ConfigImporter, ConfigExporter
 
 
 class SkillFlowServer:
@@ -1165,6 +1168,199 @@ class SkillFlowServer:
                     text="Hot-reload check triggered. Any changes will be detected and caches invalidated."
                 )]
 
+            # ========== Configuration Management Tools ==========
+            if tool_name == "import_claude_code_config":
+                """Import Claude Code configuration."""
+                import json
+
+                config_json = arguments["config_json"]
+                merge = arguments.get("merge", True)
+                overwrite = arguments.get("overwrite", False)
+
+                try:
+                    # Parse JSON
+                    config_dict = json.loads(config_json)
+
+                    # Convert to ServerRegistry
+                    new_registry = ConfigConverter.from_claude_code(config_dict)
+
+                    if merge:
+                        # Merge with existing registry
+                        current_registry = await self.storage.load_registry()
+                        merged_registry = ConfigConverter.merge_registries(
+                            current_registry,
+                            new_registry,
+                            overwrite=overwrite
+                        )
+                        await self.storage.save_registry(merged_registry)
+
+                        return [TextContent(
+                            type="text",
+                            text=f"✅ Imported {len(new_registry.servers)} servers and merged with existing config.\n"
+                                 f"Total servers: {len(merged_registry.servers)}\n"
+                                 f"Overwrite mode: {overwrite}"
+                        )]
+                    else:
+                        # Replace entire registry
+                        await self.storage.save_registry(new_registry)
+
+                        return [TextContent(
+                            type="text",
+                            text=f"✅ Replaced configuration with {len(new_registry.servers)} servers from Claude Code config."
+                        )]
+
+                except json.JSONDecodeError as e:
+                    return [TextContent(type="text", text=f"❌ Invalid JSON: {e}")]
+                except ValueError as e:
+                    return [TextContent(type="text", text=f"❌ Invalid configuration: {e}")]
+
+            if tool_name == "export_claude_code_config":
+                """Export configuration in Claude Code format."""
+                import json
+
+                registry = await self.storage.load_registry()
+                config_json = ConfigExporter.to_json_string(registry, indent=2)
+
+                return [TextContent(
+                    type="text",
+                    text=f"Current MCP Configuration (Claude Code compatible):\n\n```json\n{config_json}\n```\n\n"
+                         f"Total servers: {len(registry.servers)}"
+                )]
+
+            if tool_name == "validate_mcp_config":
+                """Validate MCP configuration."""
+                import json
+
+                config_json = arguments.get("config_json")
+
+                if config_json:
+                    # Validate provided JSON
+                    try:
+                        config_dict = json.loads(config_json)
+                        is_valid, errors = ConfigValidator.validate_registry(config_dict)
+
+                        if is_valid:
+                            return [TextContent(
+                                type="text",
+                                text="✅ Configuration is valid and compatible with Claude Code!"
+                            )]
+                        else:
+                            error_list = "\n".join(f"  • {err}" for err in errors)
+                            return [TextContent(
+                                type="text",
+                                text=f"❌ Configuration validation failed:\n\n{error_list}"
+                            )]
+                    except json.JSONDecodeError as e:
+                        return [TextContent(type="text", text=f"❌ Invalid JSON: {e}")]
+                else:
+                    # Validate current config
+                    registry = await self.storage.load_registry()
+                    config_dict = ConfigConverter.to_claude_code(registry)
+                    is_valid, errors = ConfigValidator.validate_registry(config_dict)
+
+                    if is_valid:
+                        return [TextContent(
+                            type="text",
+                            text=f"✅ Current configuration is valid!\n"
+                                 f"Total servers: {len(registry.servers)}"
+                        )]
+                    else:
+                        error_list = "\n".join(f"  • {err}" for err in errors)
+                        return [TextContent(
+                            type="text",
+                            text=f"❌ Current configuration has errors:\n\n{error_list}"
+                        )]
+
+            if tool_name == "add_mcp_server":
+                """Add or update an MCP server."""
+                server_id = arguments["server_id"]
+                name = arguments["name"]
+                transport = arguments["transport"]
+                command = arguments.get("command")
+                args = arguments.get("args", [])
+                env = arguments.get("env")
+                enabled = arguments.get("enabled", True)
+                metadata = arguments.get("metadata", {})
+
+                # Build config
+                config = {}
+                if transport == "stdio":
+                    if not command:
+                        return [TextContent(
+                            type="text",
+                            text="❌ STDIO transport requires 'command' parameter"
+                        )]
+                    config["command"] = command
+                    config["args"] = args
+                    config["env"] = env
+
+                # Create ServerConfig
+                server_config = ServerConfig(
+                    server_id=server_id,
+                    name=name,
+                    transport=transport,
+                    config=config,
+                    enabled=enabled,
+                    metadata=metadata
+                )
+
+                # Load current registry
+                registry = await self.storage.load_registry()
+
+                # Check if server exists
+                exists = server_id in registry.servers
+                action = "Updated" if exists else "Added"
+
+                # Add/update server
+                registry.servers[server_id] = server_config
+
+                # Save registry
+                await self.storage.save_registry(registry)
+
+                # Invalidate upstream tool cache for this server
+                await self._upstream_tool_cache.invalidate(server_id)
+
+                return [TextContent(
+                    type="text",
+                    text=f"✅ {action} MCP server '{server_id}' ({name})\n"
+                         f"Transport: {transport}\n"
+                         f"Enabled: {enabled}\n"
+                         f"Total servers: {len(registry.servers)}"
+                )]
+
+            if tool_name == "remove_mcp_server":
+                """Remove an MCP server."""
+                server_id = arguments["server_id"]
+
+                # Load current registry
+                registry = await self.storage.load_registry()
+
+                # Check if server exists
+                if server_id not in registry.servers:
+                    return [TextContent(
+                        type="text",
+                        text=f"❌ Server '{server_id}' not found"
+                    )]
+
+                # Remove server
+                server_name = registry.servers[server_id].name
+                del registry.servers[server_id]
+
+                # Save registry
+                await self.storage.save_registry(registry)
+
+                # Invalidate upstream tool cache for this server
+                await self._upstream_tool_cache.invalidate(server_id)
+
+                # Disconnect if currently connected
+                await self.mcp_clients.disconnect_server(server_id)
+
+                return [TextContent(
+                    type="text",
+                    text=f"✅ Removed MCP server '{server_id}' ({server_name})\n"
+                         f"Remaining servers: {len(registry.servers)}"
+                )]
+
             # Unknown tool name
             return [
                 TextContent(
@@ -1690,6 +1886,110 @@ class SkillFlowServer:
                     name="trigger_hot_reload",
                     description="Manually trigger hot-reload check (useful for immediate reload without waiting for poll interval)",
                     inputSchema={"type": "object", "properties": {}},
+                ),
+                # Configuration management tools
+                Tool(
+                    name="import_claude_code_config",
+                    description="Import MCP server configuration from Claude Code format (JSON string or file path)",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "config_json": {
+                                "type": "string",
+                                "description": "JSON string containing Claude Code configuration",
+                            },
+                            "merge": {
+                                "type": "boolean",
+                                "description": "If true, merge with existing config; if false, replace existing servers (default: true)",
+                                "default": True,
+                            },
+                            "overwrite": {
+                                "type": "boolean",
+                                "description": "If true, overwrite existing servers during merge (default: false)",
+                                "default": False,
+                            },
+                        },
+                        "required": ["config_json"],
+                    },
+                ),
+                Tool(
+                    name="export_claude_code_config",
+                    description="Export current MCP server configuration in Claude Code compatible format",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
+                Tool(
+                    name="validate_mcp_config",
+                    description="Validate MCP server configuration (JSON string or current config)",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "config_json": {
+                                "type": "string",
+                                "description": "JSON string to validate (omit to validate current config)",
+                            },
+                        },
+                    },
+                ),
+                Tool(
+                    name="add_mcp_server",
+                    description="Add or update a single MCP server in configuration",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "Unique server ID",
+                            },
+                            "name": {
+                                "type": "string",
+                                "description": "Human-readable server name",
+                            },
+                            "transport": {
+                                "type": "string",
+                                "enum": ["stdio", "http_sse", "websocket"],
+                                "description": "Transport type",
+                            },
+                            "command": {
+                                "type": "string",
+                                "description": "Command to run (for stdio transport)",
+                            },
+                            "args": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Command arguments",
+                                "default": [],
+                            },
+                            "env": {
+                                "type": "object",
+                                "description": "Environment variables",
+                            },
+                            "enabled": {
+                                "type": "boolean",
+                                "description": "Whether server is enabled",
+                                "default": True,
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "description": "Additional metadata (description, tools, etc.)",
+                                "default": {},
+                            },
+                        },
+                        "required": ["server_id", "name", "transport"],
+                    },
+                ),
+                Tool(
+                    name="remove_mcp_server",
+                    description="Remove an MCP server from configuration",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "server_id": {
+                                "type": "string",
+                                "description": "Server ID to remove",
+                            },
+                        },
+                        "required": ["server_id"],
+                    },
                 ),
             ]
 
