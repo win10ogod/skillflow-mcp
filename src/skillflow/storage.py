@@ -370,10 +370,15 @@ class StorageLayer:
         await self._atomic_write_json(registry_path, registry.model_dump(mode="json"))
 
     async def load_registry(self) -> ServerRegistry:
-        """Load server registry.
+        """Load server registry with auto-normalization.
 
         Returns:
             The server registry
+
+        Notes:
+            - Uses ConfigConverter to handle both mcpServers and servers formats
+            - Automatically normalizes incomplete configurations
+            - Returns empty registry if file doesn't exist or parsing fails
         """
         registry_path = self._get_registry_path()
         if not registry_path.exists():
@@ -385,15 +390,21 @@ class StorageLayer:
                 content = await f.read()
                 data = json.loads(content)
 
-                logger.debug(f"Loaded registry JSON with {len(data.get('servers', {}))} servers")
+                logger.debug(f"Loaded registry JSON with {len(data.get('servers', data.get('mcpServers', {})))} servers")
 
-                # Parse into ServerRegistry
-                registry = ServerRegistry(**data)
-                logger.info(f"Successfully loaded registry with {len(registry.servers)} servers")
+                # Import ConfigConverter for normalization
+                from .config_utils import ConfigConverter
+
+                # Use ConfigConverter to handle normalization and validation
+                registry = ConfigConverter.from_claude_code(data)
+                logger.info(f"Successfully loaded and normalized registry with {len(registry.servers)} servers")
                 return registry
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse registry JSON: {e}")
+            return ServerRegistry()
+        except ValueError as e:
+            logger.error(f"Invalid registry configuration: {e}")
             return ServerRegistry()
         except Exception as e:
             logger.error(f"Failed to load registry: {e}", exc_info=True)
