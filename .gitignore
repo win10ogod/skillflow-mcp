@@ -40,7 +40,6 @@ Thumbs.db
 # Skillflow data (runtime generated)
 data/sessions/
 data/runs/
-data/audit/
 data/skills/*/
 !data/skills/.gitkeep
 

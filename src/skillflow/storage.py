@@ -369,15 +369,8 @@ class StorageLayer:
     async def load_registry(self) -> ServerRegistry:
         """Load server registry.
 
-        Supports multiple configuration formats:
-        1. SkillFlow internal format (with server_id, transport, config)
-        2. Claude Code/Claude Desktop format (with mcpServers)
-        3. Nested Claude Code format (with servers containing command/args)
-
-        Automatically detects and converts formats as needed.
-
         Returns:
-            Server registry in SkillFlow internal format
+            The server registry
         """
         registry_path = self._get_registry_path()
         if not registry_path.exists():
@@ -386,31 +379,7 @@ class StorageLayer:
         async with aiofiles.open(registry_path, "r", encoding="utf-8") as f:
             content = await f.read()
             data = json.loads(content)
-
-            # Import here to avoid circular dependency
-            from .config_converter import detect_config_format, convert_claude_code_to_skillflow
-
-            # Detect format
-            config_format = detect_config_format(data)
-
-            if config_format == "claude_code" or config_format == "claude_code_nested":
-                # Convert Claude Code format to SkillFlow format
-                print(f"[Storage] Detected {config_format} format, converting to SkillFlow format")
-                registry = convert_claude_code_to_skillflow(data)
-
-                # Save converted format back to disk for future use
-                # This ensures we maintain the full SkillFlow format with metadata
-                await self.save_registry(registry)
-                print("[Storage] Converted configuration saved to disk")
-
-                return registry
-            elif config_format == "skillflow":
-                # Already in SkillFlow format
-                return ServerRegistry(**data)
-            else:
-                # Unknown format, return empty registry
-                print(f"[Storage] Warning: Unknown configuration format, returning empty registry")
-                return ServerRegistry()
+            return ServerRegistry(**data)
 
     # ========== Helper Methods ==========
 

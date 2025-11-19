@@ -202,19 +202,6 @@ Add SkillFlow server:
 
 **Important**: Replace `cwd` with the actual absolute path to skillflow-mcp.
 
-### Claude Code Setup
-
-For detailed setup instructions for Claude Code (including Desktop and CLI), see:
-- **[Claude Code Configuration Guide](docs/CLAUDE_CODE_SETUP.md)** - Complete setup and troubleshooting guide
-
-Quick verification test:
-```bash
-# Test MCP server connectivity and tool listing
-uv run python test_mcp_client.py
-```
-
-Example configuration file: `examples/claude_code_config.json`
-
 ## 🚀 Quick Start
 
 ### Basic Workflow
@@ -279,11 +266,6 @@ Example configuration file: `examples/claude_code_config.json`
 - `cancel_run` - Cancel running execution
 
 ### Upstream Server Management
-
-SkillFlow supports **standard Claude Code MCP configuration format** for upstream servers. Simply copy-paste server configurations from your Claude Desktop config!
-
-See [Upstream Server Configuration Guide](docs/UPSTREAM_SERVER_CONFIG.md) for details.
-
 - `register_upstream_server` - Register an MCP server
 - `list_upstream_servers` - List registered servers
 - `disconnect_server` - Disconnect from a server
@@ -476,8 +458,6 @@ Example:
 
 ## 📚 Documentation
 
-- [Claude Code Setup Guide](docs/CLAUDE_CODE_SETUP.md) ⭐ **NEW**
-- [Upstream Server Configuration](docs/UPSTREAM_SERVER_CONFIG.md) ⭐ **NEW**
 - [Quick Start Guide](docs/QUICKSTART.md)
 - [Usage Guide](docs/USAGE_GUIDE.md)
 - [Project Summary](docs/PROJECT_SUMMARY.md)
