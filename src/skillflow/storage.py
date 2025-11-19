@@ -18,7 +18,6 @@ from .schemas import (
     SkillMeta,
     NodeExecution,
 )
-from .skill_cache import SkillCache
 
 
 class StorageError(Exception):
@@ -39,13 +38,11 @@ class SessionNotFoundError(StorageError):
 class StorageLayer:
     """JSON-based storage for skills, sessions, and runs."""
 
-    def __init__(self, data_dir: str | Path = "data", enable_cache: bool = True, cache_ttl: int = 300):
+    def __init__(self, data_dir: str | Path = "data"):
         """Initialize storage layer.
 
         Args:
             data_dir: Root directory for data storage
-            enable_cache: Enable skill caching for performance (default: True)
-            cache_ttl: Cache TTL in seconds (default: 300 = 5 minutes)
         """
         self.data_dir = Path(data_dir)
         self.skills_dir = self.data_dir / "skills"
@@ -53,13 +50,9 @@ class StorageLayer:
         self.runs_dir = self.data_dir / "runs"
         self.registry_dir = self.data_dir / "registry"
 
-        # In-memory index for fast lookups (metadata only)
+        # In-memory index for fast lookups
         self._skill_index: dict[str, SkillMeta] = {}
         self._index_lock = asyncio.Lock()
-
-        # Skill cache for performance (full skill objects)
-        self._cache_enabled = enable_cache
-        self._skill_cache = SkillCache(ttl_seconds=cache_ttl) if enable_cache else None
 
         # Ensure directories exist
         for dir_path in [self.skills_dir, self.sessions_dir, self.runs_dir, self.registry_dir]:
@@ -137,7 +130,7 @@ class StorageLayer:
             self._skill_index[skill.id] = meta
 
     async def load_skill(self, skill_id: str, version: Optional[int] = None) -> Skill:
-        """Load a skill from storage with caching.
+        """Load a skill from storage.
 
         Args:
             skill_id: ID of the skill to load
@@ -164,13 +157,6 @@ class StorageLayer:
                 meta = json.loads(content)
                 version = meta["version"]
 
-        # Try cache first (only for latest version)
-        if self._cache_enabled and self._skill_cache and version is not None:
-            cached_skill = await self._skill_cache.get_skill(skill_id, skill_dir)
-            if cached_skill and cached_skill.version == version:
-                return cached_skill
-
-        # Cache miss - load from disk
         version_path = self._get_skill_version_path(skill_id, version)
         if not version_path.exists():
             raise SkillNotFoundError(f"Skill {skill_id} version {version} not found")
@@ -178,13 +164,7 @@ class StorageLayer:
         async with aiofiles.open(version_path, "r", encoding="utf-8") as f:
             content = await f.read()
             data = json.loads(content)
-            skill = Skill(**data)
-
-        # Cache the skill (only latest version)
-        if self._cache_enabled and self._skill_cache:
-            await self._skill_cache.set_skill(skill, skill_dir)
-
-        return skill
+            return Skill(**data)
 
     async def list_skills(self) -> list[SkillMeta]:
         """List all skills.
@@ -210,32 +190,6 @@ class StorageLayer:
 
         async with self._index_lock:
             self._skill_index.pop(skill_id, None)
-
-        # Invalidate cache
-        if self._cache_enabled and self._skill_cache:
-            await self._skill_cache.invalidate_skill(skill_id)
-
-    async def invalidate_skill_cache(self, skill_id: Optional[str] = None):
-        """Manually invalidate skill cache.
-
-        Args:
-            skill_id: Specific skill to invalidate, or None to invalidate all
-        """
-        if self._cache_enabled and self._skill_cache:
-            if skill_id:
-                await self._skill_cache.invalidate_skill(skill_id)
-            else:
-                await self._skill_cache.invalidate_all()
-
-    async def get_cache_stats(self) -> Optional[dict]:
-        """Get cache statistics.
-
-        Returns:
-            Cache statistics dict, or None if caching disabled
-        """
-        if self._cache_enabled and self._skill_cache:
-            return await self._skill_cache.get_stats()
-        return None
 
     async def get_skill_meta(self, skill_id: str) -> Optional[SkillMeta]:
         """Get skill metadata from index.
