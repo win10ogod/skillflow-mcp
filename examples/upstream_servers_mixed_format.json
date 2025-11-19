@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/tmp"
+      ],
+      "env": {
+        "DEBUG": "false"
+      }
+    },
+    "custom-server": {
+      "server_id": "custom-server",
+      "name": "My Custom Server",
+      "transport": "stdio",
+      "config": {
+        "command": "python",
+        "args": ["-m", "my_custom_server"],
+        "env": null
+      },
+      "enabled": true,
+      "metadata": {
+        "description": "My custom MCP server with additional metadata",
+        "version": "1.0.0"
+      }
+    }
+  }
+}

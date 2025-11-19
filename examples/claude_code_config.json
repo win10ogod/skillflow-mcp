@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "skillflow": {
+      "command": "uv",
+      "args": [
+        "run",
+        "skillflow"
+      ],
+      "cwd": "/absolute/path/to/skillflow-mcp",
+      "env": {}
+    }
+  }
+}
