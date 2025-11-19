@@ -214,33 +214,20 @@ class SkillManager:
         }
 
     async def list_as_mcp_tools(self) -> list[dict]:
-        """List all skills as MCP tool descriptors with caching.
+        """List all skills as MCP tool descriptors.
 
         Returns:
             List of MCP tool descriptors
         """
-        # Try to get cached tool list first
-        if hasattr(self.storage, '_skill_cache') and self.storage._skill_cache:
-            cached_tools = await self.storage._skill_cache.get_tool_list()
-            if cached_tools is not None:
-                return cached_tools
-
-        # Cache miss - build tool list
         skills = await self.list_skills()
         tools = []
-        skill_ids = set()
 
         for skill_meta in skills:
             try:
                 skill = await self.get_skill(skill_meta.id)
                 tools.append(self.export_as_mcp_tool(skill))
-                skill_ids.add(skill.id)
             except SkillNotFoundError:
                 # Skip if skill version not found
                 continue
-
-        # Cache the compiled tool list
-        if hasattr(self.storage, '_skill_cache') and self.storage._skill_cache:
-            await self.storage._skill_cache.set_tool_list(tools, skill_ids)
 
         return tools
